@@ -5,6 +5,8 @@ interface Env {
   AI?: Ai;
   GEMINI_API_KEY?: string;
   DEEPSEEK_API_KEY?: string;
+  VOLCENGINE_ARK_API_KEY?: string;
+  VOLCENGINE_ARK_ENDPOINT?: string;
   WEBAR_APP_ID?: string;
   WEBAR_LICENSE_KEY?: string;
   WEBAR_TOKEN?: string;
@@ -43,6 +45,26 @@ const deepseekJson = async (env: Env, system: string, user: string, imageBase64?
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   return content ? JSON.parse(content) : null;
+};
+
+const arkVisionJson = async (env: Env, user: string, imageBase64: string) => {
+  if (!env.VOLCENGINE_ARK_API_KEY || !env.VOLCENGINE_ARK_ENDPOINT) return null;
+  const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${env.VOLCENGINE_ARK_API_KEY}` },
+    body: JSON.stringify({
+      model: env.VOLCENGINE_ARK_ENDPOINT,
+      messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: imageBase64, detail: 'high' } }, { type: 'text', text: user }] }],
+      temperature: 0.1,
+      max_tokens: 2000,
+    }),
+  });
+  if (!response.ok) throw new Error(`Ark request failed: ${response.status}`);
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const text = payload.choices?.[0]?.message?.content?.trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ?? text;
+  try { return JSON.parse(fenced); } catch { return null; }
 };
 
 const sha256Hex = async (value: string | ArrayBuffer) => {
@@ -143,7 +165,7 @@ export default {
     }
 
     if (url.pathname === '/api/auth/session') return json({ success: true, authenticated: false, provider: 'cloudflare-demo' });
-    if (url.pathname === '/api/ai/health') return json({ success: true, provider: env.AI ? 'cloudflare-ai' : env.DEEPSEEK_API_KEY ? 'deepseek' : env.GEMINI_API_KEY ? 'gemini' : 'fallback', cloudflare_ai_configured: Boolean(env.AI), deepseek_configured: Boolean(env.DEEPSEEK_API_KEY), gemini_configured: Boolean(env.GEMINI_API_KEY) });
+    if (url.pathname === '/api/ai/health') return json({ success: true, provider: env.VOLCENGINE_ARK_API_KEY && env.VOLCENGINE_ARK_ENDPOINT ? 'doubao' : env.AI ? 'cloudflare-ai' : env.DEEPSEEK_API_KEY ? 'deepseek' : env.GEMINI_API_KEY ? 'gemini' : 'fallback', doubao_configured: Boolean(env.VOLCENGINE_ARK_API_KEY), doubao_endpoint_configured: Boolean(env.VOLCENGINE_ARK_ENDPOINT), cloudflare_ai_configured: Boolean(env.AI), deepseek_configured: Boolean(env.DEEPSEEK_API_KEY), gemini_configured: Boolean(env.GEMINI_API_KEY) });
     if (url.pathname === '/api/webar/config') {
       if (!env.WEBAR_APP_ID || !env.WEBAR_LICENSE_KEY) return json({ success: false, error: 'WebAR credentials are not configured.' }, 503);
       return json({ success: true, config: { appId: env.WEBAR_APP_ID, licenseKey: env.WEBAR_LICENSE_KEY } });
@@ -254,6 +276,11 @@ export default {
         }) : [];
         if (!products.length && imageBase64) {
           try {
+            const arkProducts = await arkVisionJson(env, '识别这张化妆柜照片中能确认的商品。只返回 JSON：{"products":[{"brand":"","name":"","category":"","confidence":0}]}。看不清的字段留空，不要猜测。', imageBase64);
+            const items = Array.isArray((arkProducts as any)?.products) ? (arkProducts as any).products : [];
+            if (items.length) return json({ success: true, provider: 'tencent-product+doubao-vision', requestId: result.RequestId, products: items.map((item: any) => ({ name: item.name || item.product_name || item.brand || '待确认商品', parents: item.brand || item.category || '豆包辅助识别', confidence: Number(item.confidence || 0), bbox: item.bbox || null })), ai_assisted: true });
+          } catch (error) { console.error('Doubao product vision fallback failed:', error instanceof Error ? error.message : 'unknown error'); }
+          try {
             const deepseekProducts = await deepseekJson(env, '你是化妆品货架识别助手。只返回 JSON。只能列出图片中能清楚确认的商品或品牌，不要猜测型号。', '识别这张化妆柜照片中可见的商品，返回 {"products":[{"brand":"","name":"","category":"","confidence":0}]}。看不清名称时保留品牌并将 name 留空。', imageBase64);
             const items = Array.isArray((deepseekProducts as any)?.products) ? (deepseekProducts as any).products : (deepseekProducts && typeof deepseekProducts === 'object' && ((deepseekProducts as any).brand || (deepseekProducts as any).product_name || (deepseekProducts as any).complete_product_name) ? [deepseekProducts] : []);
             if (items.length) return json({ success: true, provider: 'tencent-product+deepseek-vision', requestId: result.RequestId, products: items.map((item: any) => ({ name: item.name || item.product_name || item.brand || '待确认商品', parents: item.brand || item.category || 'AI 辅助识别', confidence: Number(item.confidence || 0), bbox: item.bbox || null })), ai_assisted: true });
@@ -322,6 +349,10 @@ export default {
         }
       }
       if (imageBase64) {
+        try {
+          const arkProduct = await arkVisionJson(env, '请读取这张化妆品包装照片。只返回 JSON，字段为 brand、product_name、category、subcategory、shade_name、size、ingredients、confidence；看不清的字段留空，不要猜测。', imageBase64);
+          if (arkProduct && typeof arkProduct === 'object' && ((arkProduct as any).product_name || (arkProduct as any).brand)) return json({ success: true, provider: 'doubao-vision', ai_assisted: true, product: { ...(arkProduct as any), user_notes: '由豆包视觉辅助识别，请人工核对。' } });
+        } catch (error) { console.error('Doubao OCR vision fallback failed:', error instanceof Error ? error.message : 'unknown error'); }
         const assist = await runVisionAssist(env, imageBase64, '请阅读这张化妆品包装照片并提取可确认的信息。只返回 JSON，字段为 brand、product_name、category、subcategory、shade_name、size、ingredients、confidence；看不清的字段用空字符串或空数组，不要猜测。');
         if (assist && typeof assist === 'object' && !Array.isArray(assist) && ((assist as any).product_name || (assist as any).brand || (assist as any).description)) {
           const value = assist as any;

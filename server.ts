@@ -39,6 +39,22 @@ const withTimeout = <T>(promise: Promise<T>, ms: number = 7000): Promise<T> => {
 
 const cleanTencentImage = (value: unknown) => typeof value === 'string' ? value.replace(/^data:[^;]+;base64,/, '') : '';
 
+const arkVisionJson = async (user: string, imageBase64: string) => {
+  const key = process.env.VOLCENGINE_ARK_API_KEY;
+  const endpoint = process.env.VOLCENGINE_ARK_ENDPOINT;
+  if (!key || !endpoint) return null;
+  const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: endpoint, messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: imageBase64, detail: 'high' } }, { type: 'text', text: user }] }], temperature: 0.1, max_tokens: 2000 }),
+  });
+  if (!response.ok) throw new Error(`Ark request failed: ${response.status}`);
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const text = payload.choices?.[0]?.message?.content?.trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ?? text;
+  try { return JSON.parse(fenced); } catch { return null; }
+};
+
 const tencentCloudRequest = async (options: { service: string; host: string; action: string; version: string; payload: Record<string, unknown> }) => {
   const secretId = process.env.TENCENTCLOUD_SECRET_ID;
   const secretKey = process.env.TENCENTCLOUD_SECRET_KEY;
@@ -95,6 +111,7 @@ const API_CATALOG = [
   { id: 'gemini', group: '外部服务', name: 'Gemini 文本与视觉', method: 'POST', path: '/api/ai/*', description: '统一 AI 网关，配置 GEMINI_API_KEY 后启用。', status: 'auth-required' },
   { id: 'tencent-ocr', group: '外部服务', name: '腾讯云 OCR', method: 'POST', path: 'ocr.tencentcloudapi.com', description: '正式包装识别服务，需要腾讯云密钥。', status: process.env.TENCENTCLOUD_SECRET_ID && process.env.TENCENTCLOUD_SECRET_KEY ? 'connected' : 'auth-required' },
   { id: 'tencent-product', group: '外部服务', name: '腾讯云商品识别', method: 'POST', path: '/api/product/recognize', description: '一张图片识别多个商品并返回坐标，需要腾讯云密钥。', status: process.env.TENCENTCLOUD_SECRET_ID && process.env.TENCENTCLOUD_SECRET_KEY ? 'connected' : 'auth-required' },
+  { id: 'doubao-vision', group: '外部服务', name: '豆包视觉辅助识别', method: 'POST', path: '/api/product/recognize', description: '腾讯云无结果时辅助识别中文包装和化妆柜图片，需要方舟 Key 与 Endpoint。', status: process.env.VOLCENGINE_ARK_API_KEY && process.env.VOLCENGINE_ARK_ENDPOINT ? 'connected' : 'auth-required' },
   { id: 'qweather', group: '外部服务', name: '和风天气与 UV', method: 'GET', path: '/api/weather', description: '实时天气、湿度、紫外线和预报，需要后端代理 Key。', status: 'auth-required' },
   { id: 'nmpa', group: '外部服务', name: '国家药监局备案', method: 'GET / 人工核验', path: '/api/products/{id}/filing-status', description: '官方查询或授权数据校验来源。', status: 'auth-required' },
 ];
@@ -174,6 +191,13 @@ app.post(['/api/product/recognize', '/api/vision/detect-products'], async (req, 
     });
     const result = (response.Response || {}) as Record<string, any>;
     const products = Array.isArray(result.Products) ? result.Products.map((p: any) => ({ name: p.Name, parents: p.Parents, confidence: p.Confidence, bbox: { xMin: p.XMin, yMin: p.YMin, xMax: p.XMax, yMax: p.YMax } })) : [];
+    if (!products.length && imageBase64) {
+      try {
+        const arkProducts = await arkVisionJson('识别这张化妆柜照片中能确认的商品。只返回 JSON：{"products":[{"brand":"","name":"","category":"","confidence":0}]}。看不清的字段留空，不要猜测。', imageBase64);
+        const items = Array.isArray((arkProducts as any)?.products) ? (arkProducts as any).products : [];
+        if (items.length) return res.json({ success: true, provider: 'tencent-product+doubao-vision', requestId: result.RequestId, products: items.map((item: any) => ({ name: item.name || item.product_name || item.brand || '待确认商品', parents: item.brand || item.category || '豆包辅助识别', confidence: Number(item.confidence || 0), bbox: item.bbox || null })), ai_assisted: true });
+      } catch (error: any) { console.warn('Doubao product vision fallback failed:', error?.message || 'unknown error'); }
+    }
     return res.json({ success: true, provider: 'tencent-product', requestId: result.RequestId, products });
   } catch (error: any) {
     console.error('Tencent DetectProduct failed:', error?.message || 'unknown error');
@@ -533,6 +557,13 @@ app.post('/api/ocr/recognize', async (req, res) => {
       } catch (error: any) {
         console.warn('Tencent OCR failed, fallback to existing provider:', error?.message || 'unknown error');
       }
+    }
+
+    if (imageBase64) {
+      try {
+        const arkProduct = await arkVisionJson('请读取这张化妆品包装照片。只返回 JSON，字段为 brand、product_name、category、subcategory、shade_name、size、ingredients、confidence；看不清的字段留空，不要猜测。', imageBase64);
+        if (arkProduct && typeof arkProduct === 'object' && ((arkProduct as any).product_name || (arkProduct as any).brand)) return res.json({ success: true, provider: 'doubao-vision', ai_assisted: true, product: { ...(arkProduct as any), user_notes: '由豆包视觉辅助识别，请人工核对。' } });
+      } catch (error: any) { console.warn('Doubao OCR vision fallback failed:', error?.message || 'unknown error'); }
     }
 
     if (ai && imageBase64) {
