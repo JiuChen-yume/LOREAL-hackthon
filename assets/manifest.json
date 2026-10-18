@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "generatedFrom": "beauty-twin-ai-wechat-miniapp-source.zip +拆分素材",
+  "files": [
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_beauty-cycle-banner.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_hero-header.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_shortcut-care.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_shortcut-makeup.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_shortcut-skin-memory.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_shortcut-store.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_skin-status-card.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_task-card-care.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_task-card-expiry.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_task-card-makeup.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_task-card-vanity.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/01_home_ai_beauty_companion/01_weather-status.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_inventory-summary.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_product-card-brush.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_product-card-cream.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_product-card-eyeshadow.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_product-card-foundation.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_product-card-lipstick.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_product-card-moisture.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_search-filter.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/02_my_vanity/02_vanity-header.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/03_ai_care_plan/03_care-header.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/03_ai_care_plan/03_care-mode-tabs.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/03_ai_care_plan/03_evening-routine.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/03_ai_care_plan/03_generate-care-button.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/03_ai_care_plan/03_morning-routine.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/03_ai_care_plan/03_time-selector.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/03_ai_care_plan/03_vanity-source-card.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_feature-cos-makeup.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_feature-reference-makeup.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_feature-today-makeup.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_look-daily.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_look-evening.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_look-fairy.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_look-sweet.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_makeup-hero.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/04_ai_makeup_studio/04_style-profile.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_auto-filter-card.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_feedback-acne.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_feedback-caution.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_feedback-comfort.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_feedback-redness.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_skin-header.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_skin-tabs.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_summary-avoid.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_summary-caution.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_summary-good.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/06_beauty_discovery_store/06_duplicate-purchase-reminder.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/06_beauty_discovery_store/06_recommend-cream.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/06_beauty_discovery_store/06_recommend-eyeshadow.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/06_beauty_discovery_store/06_recommend-foundation.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/06_beauty_discovery_store/06_recommend-lipstick.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/06_beauty_discovery_store/06_store-header.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/06_beauty_discovery_store/06_store-tabs.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_action-community.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_action-dropoff.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_action-points.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_action-recycle.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_community-card-1.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_community-card-2.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_community-card-3.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_cycle-header.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_cycle-links.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_esg-banner.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/07_beauty_circularity/07_points-summary.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/tab-care.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/tab-cycle.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/tab-home.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/tab-store.png",
+      "kind": "image"
+    },
+    {
+      "path": "/assets/tab-vanity.png",
+      "kind": "image"
+    }
+  ],
+  "generatedAssets": [
+    {
+      "path": "/assets/02_my_vanity/02_product-card-lipstick.png",
+      "source": "ImageGen 3x3 beauty board cell 1",
+      "background": "transparent",
+      "status": "verified"
+    },
+    {
+      "path": "/assets/05_skin_memory/05_skin-header.png",
+      "source": "ImageGen 3x3 beauty board cell 7",
+      "background": "transparent",
+      "status": "verified"
+    }
+  ],
+  "referenceScreens": [
+    "/design-references/01_home_ai_beauty_companion.png",
+    "/design-references/02_my_vanity.png",
+    "/design-references/03_ai_care_plan.png",
+    "/design-references/04_ai_makeup_studio.png",
+    "/design-references/05_skin_memory.png",
+    "/design-references/06_beauty_discovery_store.png",
+    "/design-references/07_beauty_circularity.png"
+  ],
+  "zipAssets": [
+    "assets\\zip\\beauty_circular_recycle_1792080329011.jpg",
+    "assets\\zip\\circular_bottle_eco_1792151344680.jpg",
+    "assets\\zip\\home_beauty_portrait_1792151309450.jpg",
+    "assets\\zip\\makeup_model_glamour_1792151327511.jpg",
+    "assets\\zip\\makeup_studio_look_1792080328399.jpg",
+    "assets\\zip\\skincare_routine_calm_1792080328109.jpg",
+    "assets\\zip\\vanity_hero_showcase_1792080326105.jpg"
+  ]
+}

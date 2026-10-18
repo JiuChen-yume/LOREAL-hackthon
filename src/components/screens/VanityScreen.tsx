@@ -1,0 +1,368 @@
+import React, { useState } from 'react';
+import { 
+  Search, 
+  Plus, 
+  SlidersHorizontal, 
+  Sparkles, 
+  Calendar, 
+  MoreHorizontal, 
+  AlertCircle,
+  Package,
+  Heart,
+  Leaf,
+  Check,
+  CheckSquare,
+  Square,
+  ChevronRight,
+  ShieldCheck,
+  Layers
+} from 'lucide-react';
+import { BeautyProduct } from '../../types/beauty';
+import { 
+  vanityHero, 
+  skincareCalm, 
+  makeupLookImg 
+} from '../../data/mockData';
+
+interface VanityScreenProps {
+  products: BeautyProduct[];
+  onOpenAddModal: () => void;
+  onSelectProductForDetail: (product: BeautyProduct) => void;
+  onOpenCompatibility: (products: BeautyProduct[]) => void;
+  onAddToTodayPlan?: (product: BeautyProduct) => void;
+}
+
+export const VanityScreen: React.FC<VanityScreenProps> = ({
+  products,
+  onOpenAddModal,
+  onSelectProductForDetail,
+  onOpenCompatibility,
+  onAddToTodayPlan
+}) => {
+  const [activeTab, setActiveTab] = useState('全部');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  // Convert products into uniform display items with fallback image
+  const displayItems = products.map((p) => {
+    const isExpiring = p.status === 'expiring_soon';
+    const isIdle = p.status === 'idle';
+    const isRed = p.list_status === 'red';
+    const isYellow = p.list_status === 'yellow';
+    const isBlack = p.list_status === 'black';
+
+    let tagBadge: string | null = null;
+    let tagBadgeColor = '';
+    if (isExpiring) {
+      tagBadge = '临期';
+      tagBadgeColor = 'bg-[#FF9800] text-white';
+    } else if (isIdle) {
+      tagBadge = '闲置';
+      tagBadgeColor = 'bg-[#A07060] text-white';
+    } else if (isRed) {
+      tagBadge = '红榜';
+      tagBadgeColor = 'bg-[#E53935] text-white';
+    }
+
+    return {
+      id: p.id,
+      product_name: p.product_name,
+      brand: p.brand,
+      category: p.category,
+      category_label: p.category === 'skincare' ? '护肤' : p.category === 'base' ? '底妆' : p.category === 'eye' ? '眼妆' : p.category === 'lip' ? '唇妆' : '工具',
+      shade_name: p.shade_name || p.size || `${p.brand}`,
+      expiration_date: p.expiry_date ? p.expiry_date.replaceAll('-', '.') : '长期可用',
+      status: p.status,
+      status_label: isRed ? '红榜' : isYellow ? '黄榜' : isBlack ? '黑榜' : isExpiring ? '临期' : isIdle ? '闲置' : '在用',
+      status_tag_color: isExpiring ? 'bg-amber-500/15 text-amber-700 border-amber-300' : isIdle ? 'bg-stone-200 text-stone-700' : isRed ? 'bg-rose-100 text-rose-700' : isBlack ? 'bg-stone-900 text-white' : 'bg-emerald-100 text-emerald-700',
+      tag_badge: tagBadge,
+      tag_badge_color: tagBadgeColor,
+      image: p.image_url || (p.category === 'skincare' ? skincareCalm : p.category === 'lip' || p.category === 'eye' ? makeupLookImg : vanityHero),
+      rawProduct: p
+    };
+  });
+
+  // Filter based on tabs & search
+  const filteredList = displayItems.filter(item => {
+    if (activeTab === '护肤' && item.category !== 'skincare') return false;
+    if (activeTab === '底妆' && item.category !== 'base') return false;
+    if (activeTab === '眼妆' && item.category !== 'eye') return false;
+    if (activeTab === '唇妆' && item.category !== 'lip') return false;
+    if (activeTab === '工具' && item.category !== 'tool') return false;
+    if (activeTab === '临期' && item.status !== 'expiring_soon') return false;
+    if (activeTab === '红榜' && item.status_label !== '红榜') return false;
+    if (activeTab === '黄榜' && item.status_label !== '黄榜') return false;
+    if (activeTab === '黑榜' && item.status_label !== '黑榜') return false;
+
+    if (searchQuery) {
+      return item.product_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+             item.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
+             item.shade_name.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+    return true;
+  });
+
+  const categories = ['全部', '护肤', '底妆', '眼妆', '唇妆', '工具', '临期', '红榜', '黄榜', '黑榜'];
+
+  // Toggle selection for multiple item compatibility check
+  const toggleSelectForCompatibility = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (selectedProductIds.includes(id)) {
+      setSelectedProductIds(selectedProductIds.filter(i => i !== id));
+    } else {
+      setSelectedProductIds([...selectedProductIds, id]);
+    }
+  };
+
+  const handleStartCompatibility = () => {
+    const matched = products.filter(p => selectedProductIds.includes(p.id));
+    if (matched.length >= 2) {
+      onOpenCompatibility(matched);
+    } else {
+      showToast('请至少勾选 2 件单品进行搭配避雷排查');
+    }
+  };
+
+  // Stats
+  const expiringCount = products.filter(p => p.status === 'expiring_soon').length;
+  const idleCount = products.filter(p => p.status === 'idle').length;
+
+  return (
+    <div className="p-4 space-y-3.5 text-stone-900 select-none bg-[#FAF6F3]">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-stone-900/90 backdrop-blur-md text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center gap-1.5 animate-in fade-in">
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* 1. Header with Title */}
+      <div className="relative pt-1 flex items-start justify-between">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-xl font-bold font-serif tracking-tight text-stone-900">
+              我的化妆台
+            </h1>
+            <span className="text-rose-500 text-lg leading-none">♡</span>
+          </div>
+          <p className="text-[11px] text-stone-500">
+            记录我的每一件美丽，让好产品被好好使用
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button 
+            type="button"
+            onClick={onOpenAddModal}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#962F43] hover:bg-[#832637] text-white text-xs font-semibold shadow-xs transition-transform active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>录入单品</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Top Stats Card */}
+      <div className="rounded-3xl bg-white p-4 border border-[#F0EBE6] shadow-xs flex items-center justify-between">
+        <div className="flex items-center gap-5">
+          {/* Total */}
+          <div>
+            <div className="text-[11px] text-stone-400">产品总数</div>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-2xl font-bold font-serif text-stone-900">{products.length}</span>
+              <span className="text-xs">🧴</span>
+            </div>
+          </div>
+
+          <div className="w-px h-8 bg-stone-200/80" />
+
+          {/* Expiring */}
+          <div>
+            <div className="text-[11px] text-stone-400">临期好物</div>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-2xl font-bold font-serif text-[#FF9800]">{expiringCount}</span>
+              <span className="text-xs">⚠️</span>
+            </div>
+          </div>
+
+          <div className="w-px h-8 bg-stone-200/80" />
+
+          {/* Idle */}
+          <div>
+            <div className="text-[11px] text-stone-400">待拯救闲置</div>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-2xl font-bold font-serif text-amber-700">{idleCount}</span>
+              <span className="text-xs">💡</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Compatibility Trigger */}
+        {selectedProductIds.length >= 2 ? (
+          <button
+            onClick={handleStartCompatibility}
+            className="px-3.5 py-2 rounded-2xl bg-[#962F43] text-white text-xs font-bold shadow-xs flex items-center gap-1.5 animate-bounce"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>排查已选 ({selectedProductIds.length})</span>
+          </button>
+        ) : (
+          <button 
+            type="button"
+            onClick={() => onOpenCompatibility(products.slice(0, 2))}
+            className="flex items-center gap-1 text-xs text-[#962F43] font-semibold hover:underline"
+          >
+            <span>成分搭配排查</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* 3. Search Bar */}
+      <div className="relative">
+        <input 
+          type="text" 
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="搜索品牌、单品名或色号..."
+          className="w-full pl-9 pr-4 py-2.5 bg-white rounded-2xl border border-[#F0EBE6] text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-[#962F43] shadow-xs"
+        />
+        <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 hover:text-stone-600"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* 4. Horizontal Category Filter Pills */}
+      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+        {categories.map((tab) => {
+          const isActive = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                isActive 
+                  ? 'bg-[#E25C70] text-white font-semibold shadow-2xs' 
+                  : 'bg-white text-stone-600 hover:text-stone-900 border border-[#EDE5DE]'
+              }`}
+            >
+              {tab}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 5. 2-Column Product Grid */}
+      <div className="grid grid-cols-2 gap-3 pt-1">
+        {filteredList.map((item) => {
+          const isSelected = selectedProductIds.includes(item.id);
+          return (
+            <div 
+              key={item.id}
+              onClick={() => onSelectProductForDetail(item.rawProduct)}
+              className={`rounded-3xl bg-white p-3 border shadow-xs flex flex-col justify-between space-y-2 relative overflow-hidden cursor-pointer hover:border-[#E25C70]/60 transition-all ${
+                isSelected ? 'border-[#962F43] ring-1 ring-[#962F43]' : 'border-[#F0EBE6]'
+              }`}
+            >
+              {/* Top Badge (临期 / 闲置 / 红榜) */}
+              {item.tag_badge && (
+                <div className={`absolute top-2.5 left-2.5 z-10 px-2 py-0.5 rounded-md text-[9px] font-bold shadow-2xs ${item.tag_badge_color}`}>
+                  {item.tag_badge}
+                </div>
+              )}
+
+              {/* Multi-select checkbox for compatibility */}
+              <button
+                onClick={(e) => toggleSelectForCompatibility(item.id, e)}
+                className="absolute top-2.5 right-2.5 z-10 p-1 rounded-full bg-white/90 backdrop-blur-xs text-stone-400 hover:text-stone-800 shadow-2xs"
+                title="选择进行搭配排查"
+              >
+                {isSelected ? (
+                  <CheckSquare className="w-4 h-4 text-[#962F43]" />
+                ) : (
+                  <Square className="w-4 h-4 text-stone-300 hover:text-stone-500" />
+                )}
+              </button>
+
+              {/* Product Image */}
+              <div className="w-full aspect-square rounded-2xl overflow-hidden bg-stone-50 border border-stone-100 flex items-center justify-center relative">
+                <img 
+                  src={item.image} 
+                  alt={item.product_name} 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                />
+              </div>
+
+              {/* Details */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1 text-[10px] text-stone-400 font-medium">
+                  <span>{item.category_label}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="line-clamp-1">{item.brand}</span>
+                </div>
+
+                <h3 className="text-xs font-bold text-stone-900 line-clamp-1">
+                  {item.product_name}
+                </h3>
+
+                <p className="text-[10px] text-stone-500 line-clamp-1">
+                  {item.shade_name}
+                </p>
+
+                <div className="flex items-center justify-between text-[10px] pt-0.5">
+                  <div className="flex items-center gap-1 text-stone-500">
+                    <Leaf className="w-3 h-3 text-emerald-600" />
+                    <span className="text-[9px] font-mono">{item.expiration_date}</span>
+                  </div>
+                  <span className={`px-1.5 py-0.5 rounded-md font-semibold text-[9px] ${item.status_tag_color}`}>
+                    {item.status_label}
+                  </span>
+                </div>
+              </div>
+
+              {/* 2 Bottom Quick Action Buttons */}
+              <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-stone-100">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenCompatibility([item.rawProduct]);
+                    showToast(`已开始检测「${item.product_name}」成分搭配`);
+                  }}
+                  className="py-1 px-1 rounded-full border border-rose-200 hover:bg-rose-50/50 text-[#CF3F57] text-[10px] font-medium flex items-center justify-center gap-0.5 transition-colors"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>检测搭配</span>
+                </button>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onAddToTodayPlan) onAddToTodayPlan(item.rawProduct);
+                    showToast(`已将「${item.product_name}」加入今日护理计划`);
+                  }}
+                  className="py-1 px-1 rounded-full bg-[#E25C70] hover:bg-[#d64e62] text-white text-[10px] font-semibold flex items-center justify-center gap-0.5 shadow-2xs transition-colors"
+                >
+                  <Calendar className="w-3 h-3" />
+                  <span>排入流程</span>
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};

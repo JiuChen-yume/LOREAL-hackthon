@@ -1,0 +1,23 @@
+<view class="reference-screen">
+  <image class="reference-image" src="{{image}}" mode="widthFix"/>
+  <view class="hotspots">
+    <view wx:if="{{page == 'home'}}" class="hot home-plan" data-action="plan" bindtap="emit"/>
+    <view wx:if="{{page == 'home'}}" class="hot home-vanity" data-action="vanity" bindtap="emit"/>
+    <view wx:if="{{page == 'home'}}" class="hot home-makeup" data-action="makeup" bindtap="emit"/>
+    <view wx:if="{{page == 'home'}}" class="hot home-skin" data-action="skin" bindtap="emit"/>
+    <view wx:if="{{page == 'home'}}" class="hot home-store" data-action="store" bindtap="emit"/>
+    <view wx:if="{{page == 'home'}}" class="hot home-cycle" data-action="cycle" bindtap="emit"/>
+    <view wx:if="{{page == 'vanity'}}" class="hot vanity-add" data-action="add" bindtap="emit"/>
+    <view wx:if="{{page == 'vanity'}}" class="hot vanity-care" data-action="compat" bindtap="emit"/>
+    <view wx:if="{{page == 'care'}}" class="hot care-makeup" data-action="scenario" bindtap="emit"/>
+    <view wx:if="{{page == 'care'}}" class="hot care-generate" data-action="generate" bindtap="emit"/>
+    <view wx:if="{{page == 'makeup'}}" class="hot makeup-home" data-action="home" bindtap="emit"/>
+    <view wx:if="{{page == 'makeup'}}" class="hot makeup-store" data-action="store" bindtap="emit"/>
+    <view wx:if="{{page == 'store'}}" class="hot store-vanity" data-action="shopping" bindtap="emit"/>
+    <view wx:if="{{page == 'store'}}" class="hot store-home" data-action="home" bindtap="emit"/>
+    <view wx:if="{{page == 'cycle'}}" class="hot cycle-home" data-action="home" bindtap="emit"/>
+    <view wx:if="{{page == 'cycle'}}" class="hot cycle-store" data-action="recycle" bindtap="emit"/>
+    <view wx:if="{{page == 'skin'}}" class="hot skin-home" data-action="home" bindtap="emit"/>
+  </view>
+  <view class="reference-nav"><navigator wx:for="{{nav}}" wx:key="key" class="reference-nav-item" url="{{item.url}}" open-type="reLaunch"><text>{{item.label}}</text></navigator></view>
+</view>

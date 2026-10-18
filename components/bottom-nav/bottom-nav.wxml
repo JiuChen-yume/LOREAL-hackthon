@@ -1,0 +1,6 @@
+<view class="bottom-nav">
+  <navigator wx:for="{{items}}" wx:key="key" id="nav-{{item.key}}" class="nav-item {{item.key === activeKey ? 'active' : ''}}" url="{{item.url}}" open-type="reLaunch" hover-class="nav-item-hover">
+    <text class="nav-glyph">{{item.glyph}}</text>
+    <text>{{item.label}}</text>
+  </navigator>
+</view>
