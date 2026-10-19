@@ -31,8 +31,10 @@ interface CarePlanScreenProps {
   isGenerating: boolean;
   reminderSettings?: RoutineReminderSettings;
   onUpdateReminderSettings?: (settings: RoutineReminderSettings) => void;
-  onUpdatePlan?: (plan: RoutinePlan) => void;
   onAddFeedbackLog?: (log: any) => void;
+  syncedProducts?: BeautyProduct[];
+  onRemoveSyncedProduct?: (id: string) => void;
+  onUpdatePlan?: (plan: RoutinePlan) => void;
 }
 
 export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
@@ -43,8 +45,9 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
   isGenerating,
   reminderSettings: propReminderSettings,
   onUpdateReminderSettings,
-  onUpdatePlan,
-  onAddFeedbackLog
+  onAddFeedbackLog,
+  syncedProducts = [],
+  onRemoveSyncedProduct
 }) => {
   const [activeTab, setActiveTab] = useState<'routine' | 'scenario' | 'checkin' | 'review'>('routine');
   const [onlyMyVanity, setOnlyMyVanity] = useState(true);
@@ -81,46 +84,330 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
   const [completedMorningSteps, setCompletedMorningSteps] = useState<number[]>([1]);
   const [completedNightSteps, setCompletedNightSteps] = useState<number[]>([]);
 
-  const plannedProducts = (routinePlan?.today_makeup_products || []).map(item => ({
-    item,
-    product: products.find(product => product.id === item.product_id)
-  })).filter(({ product }) => Boolean(product));
-
-  const togglePlannedProduct = (productId: string) => {
-    if (!routinePlan || !onUpdatePlan) return;
-    const updated = (routinePlan.today_makeup_products || []).map(item => item.product_id === productId ? { ...item, completed: !item.completed } : item);
-    onUpdatePlan({ ...routinePlan, today_makeup_products: updated, sync_status: 'pending' });
+  // 1. Dynamic Steps Definition for 3min, 5min, and full
+  const getBaseMorningSteps = (budget: '3min' | '5min' | 'full') => {
+    if (budget === '3min') {
+      return [
+        {
+          num: 1,
+          cat: '洁面',
+          product: '怡丽丝尔净颜洁面乳',
+          dose: '约1cm',
+          time: '30秒',
+          note: '温水快速起泡轻揉T区，洗去睡眠油脂，快速唤醒',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '多效水乳',
+          product: 'IPSA 自律循环乳液',
+          dose: '2泵',
+          time: '30秒',
+          note: '水乳二合一掌心轻压吸收，为干渴角质快速补足脂质',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '快膜防晒',
+          product: 'ALLIE 润色温和防晒乳',
+          dose: '一元硬币大',
+          time: '1分钟',
+          note: '轻拍全脸迅速成膜，带自然提亮润色，3分钟极速出门',
+          img: skincareCalm
+        }
+      ];
+    } else if (budget === '5min') {
+      return [
+        {
+          num: 1,
+          cat: '洁面',
+          product: '怡丽丝尔净颜洁面乳',
+          dose: '约1cm',
+          time: '30秒',
+          note: '温和弱酸性清洁，手心搓出微泡轻揉T区，避免拉扯两颊干皮',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '爽肤水',
+          product: 'SK-II 护肤精华露 (神仙水)',
+          dose: '3-5滴',
+          time: '等待 30秒',
+          note: '掌心温热后按压全脸，平衡水油，改善粗糙暗沉',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '精华',
+          product: '雅诗兰黛小棕瓶精华',
+          dose: '2-3滴',
+          time: '等待 30秒',
+          note: '提升肌肤强韧度，由内向外提拉按摩至充分吸收',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '乳液',
+          product: 'IPSA 自律循环乳液',
+          dose: '2泵',
+          time: '轻拍吸收',
+          note: '锁住角质层水分，在眼角和鼻翼起皮处轻点加强',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '防晒',
+          product: 'ALLIE 润色温和防晒乳',
+          dose: '约1-2cm (一元硬币大)',
+          time: '等待成膜 1分钟',
+          note: '抵御日间紫外线，轻拍均匀勿反复揉搓以免搓泥',
+          img: skincareCalm
+        }
+      ];
+    } else {
+      // 'full' (7 steps)
+      return [
+        {
+          num: 1,
+          cat: '洁面',
+          product: '怡丽丝尔净颜洁面乳',
+          dose: '约1cm',
+          time: '45秒',
+          note: '温水深层清洁，丰盈泡沫带走毛孔残留角质',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '二次清洁水',
+          product: 'SK-II 嫩肤清莹露',
+          dose: '化妆棉擦拭',
+          time: '45秒',
+          note: '顺着肌肤纹理轻拭，软化角质，打通吸收通路',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '肌底精华露',
+          product: 'SK-II 护肤精华露 (神仙水)',
+          dose: '5-8滴',
+          time: '1分钟',
+          note: '双手掌心轻捂面颊按压，深层沁润透亮',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '抗氧精华',
+          product: '雅诗兰黛小棕瓶修护精华',
+          dose: '一滴管',
+          time: '1分钟',
+          note: '抗自由基氧化，紧致肌肤轮廓',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '赋活眼霜',
+          product: '雅诗兰黛小棕瓶特润眼霜',
+          dose: '米粒大小',
+          time: '1分钟',
+          note: '无名指在眼周点按消水肿，淡化干纹细纹',
+          img: skincareCalm
+        },
+        {
+          num: 6,
+          cat: '锁水乳液',
+          product: 'IPSA 自律循环乳液',
+          dose: '2泵',
+          time: '1分钟',
+          note: '轻柔涂抹，强韧角质皮脂膜',
+          img: skincareCalm
+        },
+        {
+          num: 7,
+          cat: '防护隔离',
+          product: 'ALLIE 润色温和防晒乳',
+          dose: '硬币大小',
+          time: '2分钟成膜',
+          note: '全脸及颈部细致涂抹，全天抵御光老化',
+          img: skincareCalm
+        }
+      ];
+    }
   };
 
-  const removePlannedProduct = (productId: string) => {
-    if (!routinePlan || !onUpdatePlan) return;
-    onUpdatePlan({
-      ...routinePlan,
-      selected_product_ids: (routinePlan.selected_product_ids || []).filter(id => id !== productId),
-      today_makeup_products: (routinePlan.today_makeup_products || []).filter(item => item.product_id !== productId),
-      morning_steps: (routinePlan.morning_steps || []).filter(step => step.product_id !== productId),
-      evening_steps: (routinePlan.evening_steps || []).filter(step => step.product_id !== productId),
-      sync_status: 'pending'
-    });
-    showToast('已从护肤流程移除产品');
+  const getBaseNightSteps = (budget: '3min' | '5min' | 'full') => {
+    if (budget === '3min') {
+      return [
+        {
+          num: 1,
+          cat: '免洗温和净卸',
+          product: '贝德玛舒妍温和卸妆水',
+          dose: '浸润棉片',
+          time: '1分钟',
+          note: '免二次强力洁面，温和擦除一整天灰尘与底妆',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '密集修护面霜',
+          product: '兰芝致美紧颜面霜 (或理肤泉B5)',
+          dose: '珍珠大小',
+          time: '1分钟',
+          note: '掌心温热乳化后全脸紧实按压，锁水整夜安心入睡',
+          img: skincareCalm
+        }
+      ];
+    } else if (budget === '5min') {
+      return [
+        {
+          num: 1,
+          cat: '卸妆',
+          product: '贝德玛舒妍温和卸妆水',
+          dose: '浸润化妆棉',
+          time: '敷15秒轻擦',
+          note: '温和溶解防晒浮尘，湿敷眼唇避免用力拉扯睫毛',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '洁面',
+          product: '芙丽芳丝氨基酸洗面霜',
+          dose: '黄豆粒大小',
+          time: '30秒',
+          note: '温水快速冲洗，不紧绷不伤脂质屏障',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '爽肤水',
+          product: 'SK-II 护肤精华露',
+          dose: '4-5滴',
+          time: '等待 30秒',
+          note: '夜间深层浸润，舒缓白天外界环境带来的干燥刺痛',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '修护精华',
+          product: '雅诗兰黛特润修护肌透精华',
+          dose: '一滴管',
+          time: '配合掌心轻捂',
+          note: '夜间二裂酵母黄金修护，对抗自由基暗沉',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '面霜',
+          product: '兰芝致美紧颜面霜 (或B5厚敷)',
+          dose: '珍珠大小',
+          time: '轻柔按压',
+          note: '丰润锁水保护膜，防止空调房整夜水分蒸发',
+          img: skincareCalm
+        }
+      ];
+    } else {
+      // 'full' (7 steps)
+      return [
+        {
+          num: 1,
+          cat: '眼唇专业卸妆',
+          product: '贝德玛眼唇净卸液',
+          dose: '敷15秒',
+          time: '1分钟',
+          note: '湿敷眼周溶解防水睫毛膏与染唇液，轻拭不伤皮',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '深层洁颜油',
+          product: '植村秀琥珀臻萃洁颜油',
+          dose: '3泵',
+          time: '2分钟',
+          note: '干手干脸打圈溶解黑头油脂，加温水充分乳化净澈',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '氨基酸洁面',
+          product: '芙丽芳丝洗面霜',
+          dose: '黄豆粒大',
+          time: '45秒',
+          note: '二次洁净，洗后清爽柔软不假滑',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '浸润精华水',
+          product: 'SK-II 护肤精华露',
+          dose: '一元硬币大',
+          time: '1分钟',
+          note: '掌心温热按压，充分渗透角质深层补足水分',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '密集夜修精华',
+          product: '雅诗兰黛小棕瓶肌透修护精华',
+          dose: '一滴管',
+          time: '1.5分钟',
+          note: '由内向外提拉，夜间密集修护受损屏障',
+          img: skincareCalm
+        },
+        {
+          num: 6,
+          cat: '抗皱淡纹眼霜',
+          product: '雅诗兰黛眼霜',
+          dose: '米粒大小',
+          time: '1.5分钟',
+          note: '配合指腹打圈按摩，缓解眼周疲态与干纹',
+          img: skincareCalm
+        },
+        {
+          num: 7,
+          cat: '奢养修复面霜',
+          product: '理肤泉B5修复霜 (或兰芝面霜)',
+          dose: '樱桃大小',
+          time: '2分钟',
+          note: '掌心乳化至微透明按压，整夜封包密集修复脆弱屏障',
+          img: skincareCalm
+        }
+      ];
+    }
   };
 
-  const movePlannedProduct = (productId: string, direction: -1 | 1) => {
-    if (!routinePlan || !onUpdatePlan) return;
-    const items = [...(routinePlan.today_makeup_products || [])];
-    const index = items.findIndex(item => item.product_id === productId);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= items.length) return;
-    [items[index], items[target]] = [items[target], items[index]];
-    const order = new Map(items.map((item, itemIndex) => [item.product_id, itemIndex]));
-    const reorderSteps = (steps: typeof routinePlan.morning_steps) => [...(steps || [])].sort((a, b) => {
-      const aOrder = a.product_id ? order.get(a.product_id) : undefined;
-      const bOrder = b.product_id ? order.get(b.product_id) : undefined;
-      if (aOrder === undefined || bOrder === undefined) return 0;
-      return aOrder - bOrder;
-    });
-    onUpdatePlan({ ...routinePlan, today_makeup_products: items, morning_steps: reorderSteps(routinePlan.morning_steps), evening_steps: reorderSteps(routinePlan.evening_steps), sync_status: 'pending' });
-  };
+  // Compile active steps with any synced products from vanity
+  const rawMorning = getBaseMorningSteps(timeBudget);
+  const rawNight = getBaseNightSteps(timeBudget);
+
+  // Append synced products to steps
+  const morningSteps = [
+    ...rawMorning,
+    ...syncedProducts.map((p, idx) => ({
+      num: rawMorning.length + idx + 1,
+      cat: p.subcategory || '加餐护理',
+      product: p.product_name,
+      dose: '适量',
+      time: '1分钟',
+      note: `⭐ 来自化妆台同步：${p.user_notes || '重点针对脆弱部位修护'}`,
+      img: p.image_url || skincareCalm,
+      isSynced: true,
+      productId: p.id
+    }))
+  ];
+
+  const nightSteps = [
+    ...rawNight,
+    ...syncedProducts.map((p, idx) => ({
+      num: rawNight.length + idx + 1,
+      cat: p.subcategory || '夜间加餐',
+      product: p.product_name,
+      dose: '适量',
+      time: '1分钟',
+      note: `⭐ 来自化妆台同步：${p.user_notes || '睡前厚涂修护'}`,
+      img: p.image_url || skincareCalm,
+      isSynced: true,
+      productId: p.id
+    }))
+  ];
 
   const toggleMorningStep = (num: number) => {
     if (completedMorningSteps.includes(num)) {
@@ -128,7 +415,7 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
     } else {
       const next = [...completedMorningSteps, num];
       setCompletedMorningSteps(next);
-      if (next.length === displayedMorningSteps.length) {
+      if (next.length === morningSteps.length) {
         showToast('🎉 太棒啦！今日晨间护肤步骤已全部完成！');
       } else {
         showToast(`已完成第 ${num} 步打卡`);
@@ -142,131 +429,13 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
     } else {
       const next = [...completedNightSteps, num];
       setCompletedNightSteps(next);
-      if (next.length === displayedNightSteps.length) {
+      if (next.length === nightSteps.length) {
         showToast('🌙 晚间睡前修护已全部完成，祝好梦！');
       } else {
         showToast(`已完成第 ${num} 步打卡`);
       }
     }
   };
-
-  // Morning 5 Steps
-  const morningSteps = [
-    {
-      num: 1,
-      cat: '洁面',
-      product: '怡丽丝尔净颜洁面乳',
-      dose: '约1cm',
-      time: '30秒',
-      note: '温和弱酸性清洁，手心搓出微泡轻揉T区，避免拉扯两颊干皮',
-      img: skincareCalm
-    },
-    {
-      num: 2,
-      cat: '爽肤水',
-      product: 'SK-II 护肤精华露 (神仙水)',
-      dose: '3-5滴',
-      time: '等待 30秒',
-      note: '掌心温热后按压全脸，平衡水油，改善粗糙暗沉',
-      img: skincareCalm
-    },
-    {
-      num: 3,
-      cat: '精华',
-      product: '雅诗兰黛小棕瓶精华',
-      dose: '2-3滴',
-      time: '等待 30秒',
-      note: '提升肌肤强韧度，由内向外提拉按摩至充分吸收',
-      img: skincareCalm
-    },
-    {
-      num: 4,
-      cat: '乳液',
-      product: 'IPSA 自律循环乳液',
-      dose: '2泵',
-      time: '轻拍吸收',
-      note: '锁住角质层水分，在眼角和鼻翼起皮处轻点加强',
-      img: skincareCalm
-    },
-    {
-      num: 5,
-      cat: '防晒',
-      product: 'ALLIE 润色温和防晒乳',
-      dose: '约1-2cm (一元硬币大)',
-      time: '等待成膜 1分钟',
-      note: '抵御日间紫外线，轻拍均匀勿反复揉搓以免搓泥',
-      img: skincareCalm
-    }
-  ];
-
-  // Night 5 Steps
-  const nightSteps = [
-    {
-      num: 1,
-      cat: '卸妆',
-      product: '贝德玛舒妍温和卸妆水',
-      dose: '浸润化妆棉',
-      time: '敷15秒轻擦',
-      note: '温和溶解防晒浮尘，湿敷眼唇避免用力拉扯睫毛',
-      img: skincareCalm
-    },
-    {
-      num: 2,
-      cat: '洁面',
-      product: '芙丽芳丝氨基酸洗面霜',
-      dose: '黄豆粒大小',
-      time: '30秒',
-      note: '温水快速冲洗，不紧绷不伤脂质屏障',
-      img: skincareCalm
-    },
-    {
-      num: 3,
-      cat: '爽肤水',
-      product: 'SK-II 护肤精华露',
-      dose: '4-5滴',
-      time: '等待 30秒',
-      note: '夜间深层浸润，舒缓白天外界环境带来的干燥刺痛',
-      img: skincareCalm
-    },
-    {
-      num: 4,
-      cat: '修护精华',
-      product: '雅诗兰黛特润修护肌透精华',
-      dose: '一滴管',
-      time: '配合掌心轻捂',
-      note: '夜间二裂酵母黄金修护，对抗自由基暗沉',
-      img: skincareCalm
-    },
-    {
-      num: 5,
-      cat: '面霜',
-      product: '兰芝致美紧颜面霜 (或B5厚敷)',
-      dose: '珍珠大小',
-      time: '轻柔按压',
-      note: '丰润锁水保护膜，防止空调房整夜水分蒸发',
-      img: skincareCalm
-    }
-  ];
-
-  // The saved plan augments the curated baseline. This makes products added
-  // from the vanity visible in the actual morning/evening step lists.
-  const planStep = (step: any, index: number) => {
-    const product = products.find(item => item.id === step.product_id);
-    return {
-      num: index + 1,
-      cat: step.category || step.title || '护肤',
-      product: product ? `${product.brand} · ${product.product_name}` : step.product_name,
-      dose: step.dosage || '按说明使用',
-      time: step.wait_time || '吸收后进行下一步',
-      note: step.instruction || '根据产品标签和个人耐受使用。',
-      img: product?.image_url || skincareCalm,
-      productId: step.product_id
-    };
-  };
-  const savedMorningSteps = (routinePlan?.morning_steps || []).filter(step => step.product_id && products.some(product => product.id === step.product_id));
-  const savedEveningSteps = (routinePlan?.evening_steps || []).filter(step => step.product_id && products.some(product => product.id === step.product_id));
-  const displayedMorningSteps = [...morningSteps, ...savedMorningSteps.map((step, index) => planStep(step, morningSteps.length + index))];
-  const displayedNightSteps = [...nightSteps, ...savedEveningSteps.map((step, index) => planStep(step, nightSteps.length + index))];
 
   // 4 Special Scenarios
   const specialScenarios = [
@@ -452,40 +621,6 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
       {/* TAB 1: 日常 ROUTINE */}
       {activeTab === 'routine' && (
         <div className="space-y-4 animate-in fade-in">
-          {plannedProducts.length > 0 && (
-            <div className="rounded-3xl bg-rose-50/70 p-4 border border-rose-200 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-stone-900">已排入今日流程</h3>
-                  <p className="text-[10px] text-stone-500 mt-0.5">从我的化妆台加入的产品会在这里执行和打卡</p>
-                </div>
-                <span className="text-[10px] font-semibold text-rose-700">{plannedProducts.filter(({ item }) => item.completed).length}/{plannedProducts.length} 已完成</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {plannedProducts.map(({ item, product }, index) => (
-                  <div key={item.product_id} className={`rounded-2xl border p-3 transition-colors ${item.completed ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-rose-100 hover:border-rose-300'}`}>
-                    <button type="button" onClick={() => togglePlannedProduct(item.product_id)} className="w-full text-left">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0"><p className="text-xs font-bold text-stone-900 truncate">{product?.brand} · {product?.product_name}</p><p className="text-[10px] text-stone-500 mt-1">{item.step} · {product?.subcategory || '护肤产品'}</p></div>
-                      <span className={`shrink-0 text-[10px] font-semibold ${item.completed ? 'text-emerald-700' : 'text-rose-700'}`}>{item.completed ? '已完成' : '待执行'}</span>
-                    </div>
-                    </button>
-                    <div className="mt-2 flex items-center justify-end gap-1 border-t border-stone-100 pt-2">
-                      <button type="button" disabled={index === 0} onClick={() => movePlannedProduct(item.product_id, -1)} className="rounded-lg border border-stone-200 px-2 py-1 text-[10px] text-stone-600 disabled:opacity-30">↑ 上移</button>
-                      <button type="button" disabled={index === plannedProducts.length - 1} onClick={() => movePlannedProduct(item.product_id, 1)} className="rounded-lg border border-stone-200 px-2 py-1 text-[10px] text-stone-600 disabled:opacity-30">↓ 下移</button>
-                      <button type="button" onClick={() => removePlannedProduct(item.product_id)} className="rounded-lg border border-red-200 px-2 py-1 text-[10px] text-red-700">移除</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {routinePlan?.sync_status === 'failed' && (
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-              <span>护肤流程保存失败，当前修改仍保留在本机。</span>
-              <button type="button" onClick={() => onUpdatePlan?.(routinePlan)} className="rounded-lg bg-red-700 px-3 py-1.5 font-semibold text-white">重试保存</button>
-            </div>
-          )}
           {/* 只使用我的化妆台 Card */}
           <div className="rounded-3xl bg-white p-3.5 border border-[#F0EBE6] shadow-xs flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -519,27 +654,51 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
           {/* 3 Time Budget Selector Pills */}
           <div className="grid grid-cols-3 gap-2">
             {[
-              { id: '3min', label: '3 分钟', sub: '极速出门' },
-              { id: '5min', label: '5 分钟', sub: '精细平衡' },
-              { id: 'full', label: '完整护理', sub: '全套呵护' }
+              { id: '3min', label: '3 分钟', sub: '极速出门 (3步)' },
+              { id: '5min', label: '5 分钟', sub: '精细平衡 (5步)' },
+              { id: 'full', label: '完整护理', sub: '全套呵护 (7步)' }
             ].map((b) => (
               <button
                 key={b.id}
-                onClick={() => setTimeBudget(b.id as any)}
+                onClick={() => {
+                  setTimeBudget(b.id as any);
+                  setCompletedMorningSteps([1]);
+                  setCompletedNightSteps([]);
+                  showToast(`已切换至「${b.label}」护理方案（共 ${b.id === '3min' ? '3' : b.id === '5min' ? '5' : '7'} 步）`);
+                }}
                 className={`rounded-2xl p-2.5 text-center transition-all ${
                   timeBudget === b.id
-                    ? 'bg-white border-2 border-[#E25C70] text-[#CF3F57] shadow-xs'
+                    ? 'bg-white border-2 border-[#E25C70] text-[#CF3F57] shadow-xs ring-2 ring-[#E25C70]/20'
                     : 'bg-white/80 border border-[#EDE5DE] text-stone-600 hover:bg-white'
                 }`}
               >
                 <div className="flex items-center justify-center gap-1 text-xs font-bold">
                   <Clock className="w-3.5 h-3.5" />
                   <span>{b.label}</span>
+                  {timeBudget === b.id && <span className="text-[9px] text-[#CF3F57] animate-pulse">✨</span>}
                 </div>
                 <div className="text-[10px] mt-0.5 text-stone-400">{b.sub}</div>
               </button>
             ))}
           </div>
+
+          {/* Synced Products Banner if added from vanity */}
+          {syncedProducts.length > 0 && (
+            <div className="p-3 bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200 rounded-2xl flex items-center justify-between text-xs text-rose-900 shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <span className="text-base">⭐</span>
+                <div>
+                  <span className="font-bold block">已从化妆台同步 {syncedProducts.length} 件单品排入流程</span>
+                  <span className="text-[10px] text-stone-500">
+                    {syncedProducts.map(p => p.product_name).join('、')}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-rose-700 font-bold border border-rose-200">
+                已生效
+              </span>
+            </div>
+          )}
 
           {/* 晨间护理 Section */}
           <div className="rounded-3xl bg-white p-4 border border-[#F0EBE6] shadow-xs space-y-3">
@@ -547,24 +706,30 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-xl">☀️</span>
                 <div>
-                  <h3 className="text-sm font-bold text-stone-900">晨间护理</h3>
+                  <h3 className="text-sm font-bold text-stone-900">晨间护理 ({timeBudget === '3min' ? '3步极速' : timeBudget === '5min' ? '5步平衡' : '7步全套'})</h3>
                   <p className="text-[10px] text-stone-400">唤醒肌肤 · 清爽透亮一整天</p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-emerald-700 font-semibold">
-                  完成 {completedMorningSteps.length}/{displayedMorningSteps.length}
+                  完成 {completedMorningSteps.length}/{morningSteps.length}
                 </span>
                 <div className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[11px] font-bold border border-amber-200">
-                  约 5分钟
+                  {timeBudget === '3min' ? '约 3分钟' : timeBudget === '5min' ? '约 5分钟' : '约 12分钟'}
                 </div>
               </div>
             </div>
 
-            {/* Morning Steps */}
-            <div className="grid grid-cols-5 gap-1.5 pt-1">
-              {displayedMorningSteps.map((s) => {
+            {/* Morning Steps Dynamic Grid */}
+            <div className={`grid gap-1.5 pt-1 ${
+              timeBudget === '3min' 
+                ? 'grid-cols-3' 
+                : timeBudget === '5min' 
+                ? 'grid-cols-3 sm:grid-cols-5' 
+                : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-7'
+            }`}>
+              {morningSteps.map((s: any) => {
                 const isDone = completedMorningSteps.includes(s.num);
                 return (
                   <div 
@@ -587,6 +752,11 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
                       )}
                     </div>
                     <span className="text-[11px] font-bold">{s.cat}</span>
+                    {s.isSynced && (
+                      <span className="text-[8px] bg-rose-100 text-rose-800 px-1 rounded-full font-bold">
+                        台面同步
+                      </span>
+                    )}
                     <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-stone-200/50 my-0.5">
                       <img src={s.img} alt={s.product} className="w-full h-full object-cover" />
                     </div>
@@ -607,24 +777,30 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-xl">🌙</span>
                 <div>
-                  <h3 className="text-sm font-bold text-stone-900">晚间护理</h3>
+                  <h3 className="text-sm font-bold text-stone-900">晚间护理 ({timeBudget === '3min' ? '2步极简' : timeBudget === '5min' ? '5步修护' : '7步奢养'})</h3>
                   <p className="text-[10px] text-stone-400">深层清洁 · 修护滋养一整晚</p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-emerald-700 font-semibold">
-                  完成 {completedNightSteps.length}/{displayedNightSteps.length}
+                  完成 {completedNightSteps.length}/{nightSteps.length}
                 </span>
                 <div className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-800 text-[11px] font-bold border border-indigo-200">
-                  约 5分钟
+                  {timeBudget === '3min' ? '约 2分钟' : timeBudget === '5min' ? '约 5分钟' : '约 12分钟'}
                 </div>
               </div>
             </div>
 
-            {/* Night Steps */}
-            <div className="grid grid-cols-5 gap-1.5 pt-1">
-              {displayedNightSteps.map((s) => {
+            {/* Night Steps Dynamic Grid */}
+            <div className={`grid gap-1.5 pt-1 ${
+              timeBudget === '3min' 
+                ? 'grid-cols-2 sm:grid-cols-2' 
+                : timeBudget === '5min' 
+                ? 'grid-cols-3 sm:grid-cols-5' 
+                : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-7'
+            }`}>
+              {nightSteps.map((s: any) => {
                 const isDone = completedNightSteps.includes(s.num);
                 return (
                   <div 
@@ -647,6 +823,11 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
                       )}
                     </div>
                     <span className="text-[11px] font-bold">{s.cat}</span>
+                    {s.isSynced && (
+                      <span className="text-[8px] bg-rose-100 text-rose-800 px-1 rounded-full font-bold">
+                        台面同步
+                      </span>
+                    )}
                     <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-stone-200/50 my-0.5">
                       <img src={s.img} alt={s.product} className="w-full h-full object-cover" />
                     </div>

@@ -53,7 +53,7 @@ export const CompatibilityModal: React.FC<CompatibilityModalProps> = ({
           blacklist: blacklist.map(b => b.name)
         })
       });
-      const data = await response.json() as any;
+      const data: any = await response.json();
       if (data.success && data.report) {
         setReport(data.report);
       }

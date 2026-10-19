@@ -1,0 +1,6 @@
+{
+  "name": "我的化妆台 AI (My Vanity Hub)",
+  "description": "以化妆台为核心的AI美妆与护肤全周期管理系统，涵盖日常护理计划、妆造工作室、肌肤记忆避雷库、美妆发现商城与美丽循环ESG。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

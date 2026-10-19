@@ -10,8 +10,8 @@ import {
   Smartphone,
   Eye,
   Volume2,
-  Camera
-  ,PlugZap
+  Camera,
+  PlugZap
 } from 'lucide-react';
 
 export type ActiveTab = 'home' | 'vanity' | 'routine' | 'makeup' | 'memory' | 'mall' | 'circular' | 'api';
@@ -45,11 +45,10 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: 'mall', label: '发现商城', icon: <ShoppingBag className="w-3.5 h-3.5" /> },
     { id: 'circular', label: '美丽循环', icon: <Recycle className="w-3.5 h-3.5" /> },
     { id: 'memory', label: '肌肤记忆档案', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
-    { id: 'api', label: 'API 接入中心', icon: <PlugZap className="w-3.5 h-3.5" /> },
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-[rgba(255,250,247,0.88)] backdrop-blur-xl border-b border-[var(--bt-line)]">
+    <header className="sticky top-0 z-40 bg-[#FAF6F3]/90 backdrop-blur-md border-b border-[#EDE5DE]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
         {/* Zone 1: Brand Wordmark */}
         <div className="flex items-center gap-2.5 shrink-0">
@@ -57,7 +56,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             onClick={() => onTabChange('home')}
             className="flex items-center gap-2.5 text-left focus-visible:outline-none"
           >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#f28a86] to-[#c94d5c] text-white flex items-center justify-center font-serif text-sm font-bold shadow-md">
+            <div className="w-8 h-8 rounded-full bg-[#962F43] text-white flex items-center justify-center font-serif text-sm font-bold shadow-2xs">
               妆
             </div>
             <div>
@@ -81,7 +80,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 onClick={() => onTabChange(item.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
                   isActive 
-                    ? 'bg-[var(--bt-wine)] text-white font-semibold shadow-sm' 
+                    ? 'bg-[#962F43] text-white font-semibold shadow-2xs' 
                     : 'text-stone-600 hover:text-stone-900 hover:bg-white/80'
                 }`}
               >
