@@ -2,6 +2,8 @@
 
 当前项目已切换为压缩包中的 React/Vite 网站版本，入口位于 `src/`，本地服务同时提供页面和 AI 相关接口。
 
+接口清单、请求示例、外部服务和环境变量说明见：[docs/API-TECHNICAL.md](docs/API-TECHNICAL.md)。
+
 ## 本地运行
 
 前置条件：Node.js 18+

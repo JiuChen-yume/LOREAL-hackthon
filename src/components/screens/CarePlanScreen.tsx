@@ -31,6 +31,7 @@ interface CarePlanScreenProps {
   isGenerating: boolean;
   reminderSettings?: RoutineReminderSettings;
   onUpdateReminderSettings?: (settings: RoutineReminderSettings) => void;
+  onUpdatePlan?: (plan: RoutinePlan) => void;
   onAddFeedbackLog?: (log: any) => void;
 }
 
@@ -42,6 +43,7 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
   isGenerating,
   reminderSettings: propReminderSettings,
   onUpdateReminderSettings,
+  onUpdatePlan,
   onAddFeedbackLog
 }) => {
   const [activeTab, setActiveTab] = useState<'routine' | 'scenario' | 'checkin' | 'review'>('routine');
@@ -79,13 +81,54 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
   const [completedMorningSteps, setCompletedMorningSteps] = useState<number[]>([1]);
   const [completedNightSteps, setCompletedNightSteps] = useState<number[]>([]);
 
+  const plannedProducts = (routinePlan?.today_makeup_products || []).map(item => ({
+    item,
+    product: products.find(product => product.id === item.product_id)
+  })).filter(({ product }) => Boolean(product));
+
+  const togglePlannedProduct = (productId: string) => {
+    if (!routinePlan || !onUpdatePlan) return;
+    const updated = (routinePlan.today_makeup_products || []).map(item => item.product_id === productId ? { ...item, completed: !item.completed } : item);
+    onUpdatePlan({ ...routinePlan, today_makeup_products: updated, sync_status: 'pending' });
+  };
+
+  const removePlannedProduct = (productId: string) => {
+    if (!routinePlan || !onUpdatePlan) return;
+    onUpdatePlan({
+      ...routinePlan,
+      selected_product_ids: (routinePlan.selected_product_ids || []).filter(id => id !== productId),
+      today_makeup_products: (routinePlan.today_makeup_products || []).filter(item => item.product_id !== productId),
+      morning_steps: (routinePlan.morning_steps || []).filter(step => step.product_id !== productId),
+      evening_steps: (routinePlan.evening_steps || []).filter(step => step.product_id !== productId),
+      sync_status: 'pending'
+    });
+    showToast('已从护肤流程移除产品');
+  };
+
+  const movePlannedProduct = (productId: string, direction: -1 | 1) => {
+    if (!routinePlan || !onUpdatePlan) return;
+    const items = [...(routinePlan.today_makeup_products || [])];
+    const index = items.findIndex(item => item.product_id === productId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= items.length) return;
+    [items[index], items[target]] = [items[target], items[index]];
+    const order = new Map(items.map((item, itemIndex) => [item.product_id, itemIndex]));
+    const reorderSteps = (steps: typeof routinePlan.morning_steps) => [...(steps || [])].sort((a, b) => {
+      const aOrder = a.product_id ? order.get(a.product_id) : undefined;
+      const bOrder = b.product_id ? order.get(b.product_id) : undefined;
+      if (aOrder === undefined || bOrder === undefined) return 0;
+      return aOrder - bOrder;
+    });
+    onUpdatePlan({ ...routinePlan, today_makeup_products: items, morning_steps: reorderSteps(routinePlan.morning_steps), evening_steps: reorderSteps(routinePlan.evening_steps), sync_status: 'pending' });
+  };
+
   const toggleMorningStep = (num: number) => {
     if (completedMorningSteps.includes(num)) {
       setCompletedMorningSteps(completedMorningSteps.filter(n => n !== num));
     } else {
       const next = [...completedMorningSteps, num];
       setCompletedMorningSteps(next);
-      if (next.length === morningSteps.length) {
+      if (next.length === displayedMorningSteps.length) {
         showToast('🎉 太棒啦！今日晨间护肤步骤已全部完成！');
       } else {
         showToast(`已完成第 ${num} 步打卡`);
@@ -99,7 +142,7 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
     } else {
       const next = [...completedNightSteps, num];
       setCompletedNightSteps(next);
-      if (next.length === nightSteps.length) {
+      if (next.length === displayedNightSteps.length) {
         showToast('🌙 晚间睡前修护已全部完成，祝好梦！');
       } else {
         showToast(`已完成第 ${num} 步打卡`);
@@ -204,6 +247,26 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
       img: skincareCalm
     }
   ];
+
+  // The saved plan augments the curated baseline. This makes products added
+  // from the vanity visible in the actual morning/evening step lists.
+  const planStep = (step: any, index: number) => {
+    const product = products.find(item => item.id === step.product_id);
+    return {
+      num: index + 1,
+      cat: step.category || step.title || '护肤',
+      product: product ? `${product.brand} · ${product.product_name}` : step.product_name,
+      dose: step.dosage || '按说明使用',
+      time: step.wait_time || '吸收后进行下一步',
+      note: step.instruction || '根据产品标签和个人耐受使用。',
+      img: product?.image_url || skincareCalm,
+      productId: step.product_id
+    };
+  };
+  const savedMorningSteps = (routinePlan?.morning_steps || []).filter(step => step.product_id && products.some(product => product.id === step.product_id));
+  const savedEveningSteps = (routinePlan?.evening_steps || []).filter(step => step.product_id && products.some(product => product.id === step.product_id));
+  const displayedMorningSteps = [...morningSteps, ...savedMorningSteps.map((step, index) => planStep(step, morningSteps.length + index))];
+  const displayedNightSteps = [...nightSteps, ...savedEveningSteps.map((step, index) => planStep(step, nightSteps.length + index))];
 
   // 4 Special Scenarios
   const specialScenarios = [
@@ -389,6 +452,40 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
       {/* TAB 1: 日常 ROUTINE */}
       {activeTab === 'routine' && (
         <div className="space-y-4 animate-in fade-in">
+          {plannedProducts.length > 0 && (
+            <div className="rounded-3xl bg-rose-50/70 p-4 border border-rose-200 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">已排入今日流程</h3>
+                  <p className="text-[10px] text-stone-500 mt-0.5">从我的化妆台加入的产品会在这里执行和打卡</p>
+                </div>
+                <span className="text-[10px] font-semibold text-rose-700">{plannedProducts.filter(({ item }) => item.completed).length}/{plannedProducts.length} 已完成</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {plannedProducts.map(({ item, product }, index) => (
+                  <div key={item.product_id} className={`rounded-2xl border p-3 transition-colors ${item.completed ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-rose-100 hover:border-rose-300'}`}>
+                    <button type="button" onClick={() => togglePlannedProduct(item.product_id)} className="w-full text-left">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0"><p className="text-xs font-bold text-stone-900 truncate">{product?.brand} · {product?.product_name}</p><p className="text-[10px] text-stone-500 mt-1">{item.step} · {product?.subcategory || '护肤产品'}</p></div>
+                      <span className={`shrink-0 text-[10px] font-semibold ${item.completed ? 'text-emerald-700' : 'text-rose-700'}`}>{item.completed ? '已完成' : '待执行'}</span>
+                    </div>
+                    </button>
+                    <div className="mt-2 flex items-center justify-end gap-1 border-t border-stone-100 pt-2">
+                      <button type="button" disabled={index === 0} onClick={() => movePlannedProduct(item.product_id, -1)} className="rounded-lg border border-stone-200 px-2 py-1 text-[10px] text-stone-600 disabled:opacity-30">↑ 上移</button>
+                      <button type="button" disabled={index === plannedProducts.length - 1} onClick={() => movePlannedProduct(item.product_id, 1)} className="rounded-lg border border-stone-200 px-2 py-1 text-[10px] text-stone-600 disabled:opacity-30">↓ 下移</button>
+                      <button type="button" onClick={() => removePlannedProduct(item.product_id)} className="rounded-lg border border-red-200 px-2 py-1 text-[10px] text-red-700">移除</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {routinePlan?.sync_status === 'failed' && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              <span>护肤流程保存失败，当前修改仍保留在本机。</span>
+              <button type="button" onClick={() => onUpdatePlan?.(routinePlan)} className="rounded-lg bg-red-700 px-3 py-1.5 font-semibold text-white">重试保存</button>
+            </div>
+          )}
           {/* 只使用我的化妆台 Card */}
           <div className="rounded-3xl bg-white p-3.5 border border-[#F0EBE6] shadow-xs flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -457,7 +554,7 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
 
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-emerald-700 font-semibold">
-                  完成 {completedMorningSteps.length}/{morningSteps.length}
+                  完成 {completedMorningSteps.length}/{displayedMorningSteps.length}
                 </span>
                 <div className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[11px] font-bold border border-amber-200">
                   约 5分钟
@@ -467,7 +564,7 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
 
             {/* Morning Steps */}
             <div className="grid grid-cols-5 gap-1.5 pt-1">
-              {morningSteps.map((s) => {
+              {displayedMorningSteps.map((s) => {
                 const isDone = completedMorningSteps.includes(s.num);
                 return (
                   <div 
@@ -517,7 +614,7 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
 
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-emerald-700 font-semibold">
-                  完成 {completedNightSteps.length}/{nightSteps.length}
+                  完成 {completedNightSteps.length}/{displayedNightSteps.length}
                 </span>
                 <div className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-800 text-[11px] font-bold border border-indigo-200">
                   约 5分钟
@@ -527,7 +624,7 @@ export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
 
             {/* Night Steps */}
             <div className="grid grid-cols-5 gap-1.5 pt-1">
-              {nightSteps.map((s) => {
+              {displayedNightSteps.map((s) => {
                 const isDone = completedNightSteps.includes(s.num);
                 return (
                   <div 

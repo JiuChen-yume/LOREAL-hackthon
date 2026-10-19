@@ -43,6 +43,7 @@ interface Image4BeautyEditorProps {
   onClose: () => void;
   products: BeautyProduct[];
   onSaveLook?: (lookTitle: string, rating: 'red' | 'yellow' | 'black') => void;
+  onConfirmFollowAlong?: () => void;
   initialSet?: string;
 }
 
@@ -51,6 +52,7 @@ export const Image4BeautyEditor: React.FC<Image4BeautyEditorProps> = ({
   onClose,
   products,
   onSaveLook,
+  onConfirmFollowAlong,
   initialSet = '韩蕾妆'
 }) => {
   const [photoUrl, setPhotoUrl] = useState(initialPhoto);
@@ -1278,7 +1280,14 @@ export const Image4BeautyEditor: React.FC<Image4BeautyEditorProps> = ({
           })}
         </div>
 
-        {/* Right: Confirm Button (✓) */}
+        {/* Right: Confirm and follow-along actions */}
+        {onConfirmFollowAlong && <button
+          onClick={() => {
+            onSaveLook?.(`定制试妆 · ${activeSetId}`, 'red');
+            onConfirmFollowAlong();
+          }}
+          className="px-3 py-2 rounded-full bg-[#962F43] text-white text-[11px] font-bold whitespace-nowrap"
+        >确认妆容，开始跟练</button>}
         <button
           onClick={() => {
             if (onSaveLook) {

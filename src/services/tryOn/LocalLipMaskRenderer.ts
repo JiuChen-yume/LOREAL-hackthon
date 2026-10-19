@@ -43,6 +43,11 @@ export class LocalLipMaskRenderer {
     return this.renderMakeup(source, output, { lip: options });
   }
 
+  detectFace(source: HTMLImageElement | HTMLCanvasElement): boolean {
+    if (!this.landmarker) throw new Error('LOCAL_LIP_RENDERER_NOT_READY');
+    return this.landmarker.detect(source).faceLandmarks?.length > 0;
+  }
+
   renderMakeup(source: HTMLImageElement | HTMLCanvasElement, output: HTMLCanvasElement, options: LocalMakeupRenderOptions): boolean {
     if (!this.landmarker) throw new Error('LOCAL_LIP_RENDERER_NOT_READY');
     const width = source instanceof HTMLImageElement ? source.naturalWidth : source.width;
@@ -114,6 +119,8 @@ function drawMaskedColor(context: CanvasRenderingContext2D, width: number, heigh
   mask.width = width; mask.height = height;
   const maskContext = mask.getContext('2d')!;
   maskContext.fillStyle = '#fff';
+  const feather = Math.max(2, Math.min(14, Math.round(Math.min(width, height) / 260)));
+  maskContext.filter = `blur(${feather}px)`;
   drawPolygon(maskContext, outer);
   if (inner.length >= 3) {
     maskContext.globalCompositeOperation = 'destination-out';
@@ -123,19 +130,28 @@ function drawMaskedColor(context: CanvasRenderingContext2D, width: number, heigh
   tint.width = width; tint.height = height;
   const tintContext = tint.getContext('2d')!;
   tintContext.fillStyle = color;
-  tintContext.globalAlpha = Math.max(0, Math.min(1, intensity / 100));
+  tintContext.globalAlpha = Math.max(0, Math.min(0.78, intensity / 100 * 0.78));
   tintContext.fillRect(0, 0, width, height);
   tintContext.globalCompositeOperation = 'destination-in';
   tintContext.drawImage(mask, 0, 0);
-  context.globalCompositeOperation = finish === 'gloss' ? 'soft-light' : 'multiply';
+  context.save();
+  // `color` changes hue while preserving the source luminance and texture;
+  // soft-light is reserved for translucent/dewy finishes.
+  context.globalCompositeOperation = finish === 'gloss' || finish === 'dewy' ? 'soft-light' : 'color';
+  context.globalAlpha = finish === 'matte' ? 0.9 : 0.72;
   context.drawImage(tint, 0, 0);
-  context.globalCompositeOperation = 'source-over';
+  context.restore();
   if (finish === 'gloss') {
-    context.globalAlpha = Math.max(0.04, Math.min(0.18, intensity / 700));
-    context.fillStyle = '#fff';
+    context.save();
+    context.globalAlpha = Math.max(0.02, Math.min(0.08, intensity / 1100));
+    context.fillStyle = 'rgba(255,255,255,0.9)';
     const center = outer.reduce((acc, point) => ({ x: acc.x + point.x / outer.length, y: acc.y + point.y / outer.length }), { x: 0, y: 0 });
-    context.beginPath(); context.ellipse(center.x, center.y, width * 0.035, height * 0.012, 0, 0, Math.PI * 2); context.fill();
-    context.globalAlpha = 1;
+    const gloss = context.createRadialGradient(center.x, center.y, 0, center.x, center.y, Math.max(8, width * 0.065));
+    gloss.addColorStop(0, 'rgba(255,255,255,0.8)');
+    gloss.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gloss;
+    context.beginPath(); context.ellipse(center.x, center.y, width * 0.05, height * 0.018, 0, 0, Math.PI * 2); context.fill();
+    context.restore();
   }
 }
 
@@ -194,18 +210,22 @@ function cheekPoints(landmarks: NormalizedLandmark[], indices: number[]): Array<
 
 function drawCheekGradient(context: CanvasRenderingContext2D, points: Array<{ x: number; y: number }>, color: string, alpha: number, shift: number, width: number, height: number): void {
   const center = points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 });
-  const gradient = context.createRadialGradient(center.x * width, center.y * height + shift, 0, center.x * width, center.y * height + shift, Math.max(width * 0.17, 12));
-  gradient.addColorStop(0, `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`);
-  gradient.addColorStop(0.62, `${color}${Math.round(alpha * 120).toString(16).padStart(2, '0')}`);
+  const cx = center.x * width;
+  const cy = center.y * height + shift;
+  const radiusX = Math.max(width * 0.12, 28);
+  const radiusY = Math.max(height * 0.055, 18);
+  const gradient = context.createRadialGradient(cx, cy, 0, cx, cy, Math.max(radiusX, radiusY));
+  gradient.addColorStop(0, `${color}${Math.round(alpha * 150).toString(16).padStart(2, '0')}`);
+  gradient.addColorStop(0.48, `${color}${Math.round(alpha * 90).toString(16).padStart(2, '0')}`);
   gradient.addColorStop(1, `${color}00`);
   context.save();
-  context.beginPath();
-  context.moveTo(points[0].x * width, points[0].y * height + shift);
-  points.slice(1).forEach(point => context.lineTo(point.x * width, point.y * height + shift));
-  context.closePath();
-  context.clip();
+  // A soft cheekbone-shaped oval avoids the old clipped polygon/triangle.
+  context.globalCompositeOperation = 'soft-light';
+  context.globalAlpha = 0.9;
   context.fillStyle = gradient;
-  context.fillRect(0, 0, width, height);
+  context.beginPath();
+  context.ellipse(cx, cy, radiusX, radiusY, points[points.length - 1].x > points[0].x ? -0.12 : 0.12, 0, Math.PI * 2);
+  context.fill();
   context.restore();
 }
 

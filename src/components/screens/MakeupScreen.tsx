@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   Palette, 
   Sparkles, 
@@ -26,18 +26,19 @@ import {
 import { BeautyProduct, MakeupLook } from '../../types/beauty';
 import { 
   makeupLookImg, 
-  makeupGlamourImg, 
-  homePortraitImg, 
-  vanityHero 
+  homePortraitImg
 } from '../../data/mockData';
 import { Image4BeautyEditor } from '../makeup/Image4BeautyEditor';
+import { MakeupFollowAlong } from '../makeup/MakeupFollowAlong';
+import { LocalLipMaskRenderer } from '../../services/tryOn/LocalLipMaskRenderer';
 
 interface MakeupScreenProps {
   products: BeautyProduct[];
   looks: MakeupLook[];
-  onGenerateLook?: (params: { lookType: 'daily' | 'imitation' | 'cos'; referenceText?: string }) => void;
+  onGenerateLook?: (params: { lookType: 'daily' | 'imitation' | 'cos'; referenceText?: string; referenceImage?: string; characterName?: string; userPhoto?: string }) => void;
   onRateLook?: (lookTitle: string, rating: 'red' | 'yellow' | 'black', reason: string) => void;
   isGenerating?: boolean;
+  authenticated?: boolean;
 }
 
 export const MakeupScreen: React.FC<MakeupScreenProps> = ({
@@ -45,7 +46,8 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
   looks,
   onGenerateLook,
   onRateLook,
-  isGenerating = false
+  isGenerating = false,
+  authenticated = false
 }) => {
   // Navigation inside Makeup: 'create' | 'precheck' | 'profile' | 'archive'
   const [activeTab, setActiveTab] = useState<'create' | 'precheck' | 'profile' | 'archive'>('create');
@@ -55,6 +57,12 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
   // showcase artwork must never be presented as if it were the user's result.
   const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const referenceInputRef = useRef<HTMLInputElement | null>(null);
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const [characterName, setCharacterName] = useState('');
+  const [showFollowAlong, setShowFollowAlong] = useState(false);
+  const [faceStatus, setFaceStatus] = useState<'idle' | 'checking' | 'ready' | 'failed'>('idle');
+  const faceRendererRef = useRef<LocalLipMaskRenderer | null>(null);
 
   // Full-screen Image 4 Virtual Makeup Editor Modal
   const [showImage4Editor, setShowImage4Editor] = useState<boolean>(false);
@@ -93,6 +101,13 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
   const [ratingNotice, setRatingNotice] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  useEffect(() => () => { faceRendererRef.current?.dispose(); }, []);
+
+  useEffect(() => {
+    const latest = looks.find(item => item.type === selectedLookType);
+    if (latest) setViewingLook(latest);
+  }, [looks, selectedLookType]);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2500);
@@ -119,11 +134,39 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
       reader.onload = (event) => {
         if (event.target?.result) {
           setUserPhotoUrl(event.target.result as string);
-          showToast('面部自拍已上传成功！已解锁下方详细试妆展示');
+          setFaceStatus('checking');
+          const image = new Image();
+          image.onload = async () => {
+            try {
+              if (!faceRendererRef.current) faceRendererRef.current = new LocalLipMaskRenderer();
+              await faceRendererRef.current.initialize();
+              const detected = faceRendererRef.current.detectFace(image);
+              setFaceStatus(detected ? 'ready' : 'failed');
+              showToast(detected ? '已定位面部关键点，可以进入试妆' : '未识别到清晰人脸，请上传正面照片');
+            } catch (error) {
+              setFaceStatus('failed');
+              showToast('人脸定位模型加载失败，请检查模型资源或重试');
+            }
+          };
+          image.onerror = () => { setFaceStatus('failed'); showToast('照片无法读取，请重新上传'); };
+          image.src = event.target.result as string;
         }
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('请选择图片格式的妆容参考图'); return; }
+    const reader = new FileReader();
+    reader.onload = event => setReferenceImage(String(event.target?.result || ''));
+    reader.readAsDataURL(file);
+  };
+
+  const handleGenerateCurrentLook = () => {
+    onGenerateLook?.({ lookType: selectedLookType, referenceImage: referenceImage || undefined, characterName: characterName || undefined, userPhoto: userPhotoUrl || undefined, referenceText: selectedLookType === 'cos' ? `角色：${characterName || '待填写'}` : undefined });
   };
 
   // Handle clicking the big showcase card
@@ -131,6 +174,10 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
     if (!userPhotoUrl) {
       showToast('请先在上方完成「上传我的照片」，解锁试妆镜详细展示');
       fileInputRef.current?.click();
+      return;
+    }
+    if (faceStatus !== 'ready') {
+      showToast(faceStatus === 'failed' ? '当前照片未识别到人脸，请重新上传' : '正在进行人脸定位，请稍候');
       return;
     }
     if (setName) setEditorInitialSet(setName);
@@ -250,12 +297,12 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
                       ? 'bg-emerald-100 text-emerald-800' 
                       : 'bg-amber-100 text-amber-800'
                   }`}>
-                    {userPhotoUrl ? '✓ 已就绪' : '待上传'}
+                    {faceStatus === 'checking' ? '识别中…' : faceStatus === 'ready' ? '✓ 人脸已定位' : userPhotoUrl ? '待定位' : '待上传'}
                   </span>
                 </div>
                 <p className="text-[11px] text-stone-500 mt-0.5">
                   {userPhotoUrl 
-                    ? '面部数据已同步 · 随时点击下方妆容展示进入腾讯云试妆镜' 
+                    ? faceStatus === 'ready' ? '面部关键点已定位 · 可以进入腾讯云试妆镜' : '正在校验照片中的人脸区域…'
                     : '上传正面清晰自拍，精准贴合五官骨相与化妆台真实色号'}
                 </p>
               </div>
@@ -271,27 +318,7 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
                 <span>{userPhotoUrl ? '更换我的照片' : '上传我的照片'}</span>
               </button>
 
-              {/* Quick Presets for instant trial without upload */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => {
-                    setUserPhotoUrl(homePortraitImg);
-                    showToast('已选用「自然素颜」示例底卡');
-                  }}
-                  className="px-2 py-1 rounded-full text-[10px] bg-white/80 hover:bg-white text-stone-700 border border-stone-200 transition-colors"
-                >
-                  自然示例
-                </button>
-                <button
-                  onClick={() => {
-                    setUserPhotoUrl(makeupGlamourImg);
-                    showToast('已选用「冷白清透」示例底卡');
-                  }}
-                  className="px-2 py-1 rounded-full text-[10px] bg-white/80 hover:bg-white text-stone-700 border border-stone-200 transition-colors"
-                >
-                  冷白示例
-                </button>
-              </div>
+              <span className="text-[10px] text-stone-500">仅使用用户上传照片进行真实试妆</span>
             </div>
           </div>
         )}
@@ -405,6 +432,19 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
                 </button>
               ))}
             </div>
+            <div className="rounded-2xl border border-stone-200 bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold text-stone-800">{selectedLookType === 'imitation' ? '上传仿妆参考图' : selectedLookType === 'cos' ? '输入角色并上传参考图' : '今日妆容参数'}</p>
+                  <p className="text-[10px] text-stone-500">{selectedLookType === 'daily' ? '将根据今日护理计划和化妆台生成' : '参考图只用于生成妆容方案，不会自动保存到云端'}</p>
+                </div>
+                {selectedLookType !== 'daily' && <button type="button" onClick={() => referenceInputRef.current?.click()} className="px-3 py-1.5 rounded-full border border-[#962F43] text-[#962F43] text-[10px] font-semibold"><Upload className="inline w-3 h-3 mr-1" />{referenceImage ? '更换参考图' : '选择参考图'}</button>}
+              </div>
+              {selectedLookType === 'cos' && <input value={characterName} onChange={e => setCharacterName(e.target.value)} placeholder="例如：芙宁娜 / 初音未来" className="w-full rounded-xl border border-stone-200 px-3 py-2 text-xs" />}
+              {referenceImage && <img src={referenceImage} alt="妆容参考图" className="h-24 w-full object-cover rounded-xl" />}
+              <input ref={referenceInputRef} type="file" accept="image/*" className="hidden" onChange={handleReferenceUpload} />
+              <button type="button" disabled={isGenerating || (selectedLookType === 'cos' && !characterName.trim())} onClick={handleGenerateCurrentLook} className="w-full rounded-xl bg-stone-900 py-2 text-xs font-semibold text-white disabled:opacity-50">{isGenerating ? 'AI 正在生成…' : '生成当前类型妆容方案'}</button>
+            </div>
           </div>
         )}
       </div>
@@ -461,8 +501,8 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
               <div className="relative min-h-[380px] sm:min-h-[440px] w-full bg-stone-950 flex items-center justify-center">
                 {/* Large Face Image */}
                 <img 
-                  src={userPhotoUrl} 
-                  alt="My Makeup Look" 
+                  src={viewingLook.generated_image || userPhotoUrl} 
+                  alt={viewingLook.generated_image ? 'AI 生成的妆效结果图' : 'My Makeup Look'} 
                   className="w-full h-full max-h-[480px] object-cover object-center group-hover:scale-102 transition-transform duration-500" 
                 />
 
@@ -478,7 +518,7 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
                     待应用妆容：{viewingLook.title}
                   </span>
                   <span className="px-2.5 py-1 rounded-full bg-[#22C55E]/90 text-black text-[10px] font-bold">
-                    照片已载入 · 腾讯云待定位
+                    {viewingLook.render_status === 'ready' ? `豆包妆效图已生成${viewingLook.rendered_layers?.length ? ` · ${viewingLook.rendered_layers.length} 个图层` : ''}` : faceStatus === 'ready' ? '人脸关键点已定位' : faceStatus === 'checking' ? '人脸识别中…' : '待完成人脸定位'}
                   </span>
                 </div>
 
@@ -506,7 +546,7 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
                       }}
                       className="px-5 py-2.5 rounded-full bg-[#22C55E] hover:bg-[#1ea34d] text-black text-xs font-bold shadow-lg flex items-center justify-center gap-2 shrink-0 transition-transform active:scale-95"
                     >
-                      <span>点此进入详细试妆镜 (图4模式)</span>
+                      <span>点此进入详细试妆镜</span>
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -520,6 +560,9 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
               </div>
             )}
           </div>
+          {userPhotoUrl && faceStatus !== 'checking' && (
+            <button type="button" onClick={() => setShowFollowAlong(true)} className="w-full rounded-2xl bg-[#962F43] text-white py-3 text-xs font-bold">确认妆容，开始跟练</button>
+          )}
         </div>
       )}
 
@@ -754,7 +797,14 @@ export const MakeupScreen: React.FC<MakeupScreenProps> = ({
             }
           }}
           initialSet={editorInitialSet}
+          onConfirmFollowAlong={() => {
+            setShowImage4Editor(false);
+            setShowFollowAlong(true);
+          }}
         />
+      )}
+      {showFollowAlong && userPhotoUrl && (
+        <MakeupFollowAlong userPhotoUrl={viewingLook.generated_image || userPhotoUrl} look={viewingLook} products={products} authenticated={authenticated} onClose={() => setShowFollowAlong(false)} />
       )}
     </div>
   );

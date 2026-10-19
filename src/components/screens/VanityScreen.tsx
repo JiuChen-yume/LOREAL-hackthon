@@ -29,7 +29,8 @@ interface VanityScreenProps {
   onOpenAddModal: () => void;
   onSelectProductForDetail: (product: BeautyProduct) => void;
   onOpenCompatibility: (products: BeautyProduct[]) => void;
-  onAddToTodayPlan?: (product: BeautyProduct) => void;
+  onAddToTodayPlan?: (product: BeautyProduct) => boolean;
+  onRetryProductEnrichment?: (product: BeautyProduct) => void;
 }
 
 export const VanityScreen: React.FC<VanityScreenProps> = ({
@@ -37,7 +38,8 @@ export const VanityScreen: React.FC<VanityScreenProps> = ({
   onOpenAddModal,
   onSelectProductForDetail,
   onOpenCompatibility,
-  onAddToTodayPlan
+  onAddToTodayPlan,
+  onRetryProductEnrichment
 }) => {
   const [activeTab, setActiveTab] = useState('全部');
   const [searchQuery, setSearchQuery] = useState('');
@@ -350,8 +352,8 @@ export const VanityScreen: React.FC<VanityScreenProps> = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onAddToTodayPlan) onAddToTodayPlan(item.rawProduct);
-                    showToast(`已将「${item.product_name}」加入今日护理计划`);
+                    const added = onAddToTodayPlan ? onAddToTodayPlan(item.rawProduct) : false;
+                    showToast(added ? `已将「${item.product_name}」加入今日护理计划` : `「${item.product_name}」已在今日护理计划中`);
                   }}
                   className="py-1 px-1 rounded-full bg-[#E25C70] hover:bg-[#d64e62] text-white text-[10px] font-semibold flex items-center justify-center gap-0.5 shadow-2xs transition-colors"
                 >
@@ -359,6 +361,14 @@ export const VanityScreen: React.FC<VanityScreenProps> = ({
                   <span>排入流程</span>
                 </button>
               </div>
+              {item.rawProduct.ingredient_enrichment_status && item.rawProduct.ingredient_enrichment_status !== 'confirmed' && (
+                <div className="flex items-center justify-between gap-2 pt-1 text-[10px] text-stone-500">
+                  <span>{item.rawProduct.ingredient_enrichment_status === 'querying' ? '成分查询中…' : item.rawProduct.ingredient_enrichment_status === 'failed' ? '成分查询失败' : item.rawProduct.ingredient_enrichment_status === 'not_found' ? '未找到可靠资料' : '成分待核实'}</span>
+                  {(item.rawProduct.ingredient_enrichment_status === 'failed' || item.rawProduct.ingredient_enrichment_status === 'not_found') && onRetryProductEnrichment && (
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onRetryProductEnrichment(item.rawProduct); showToast('已重新提交成分查询'); }} className="rounded-lg border border-stone-200 px-2 py-1 text-[#962F43]">重试查询</button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

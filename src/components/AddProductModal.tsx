@@ -20,6 +20,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { BeautyProduct, ProductCategory } from '../types/beauty';
+import { normalizeRecognitionCandidates } from '../services/recognition/productRecognitionService';
 
 interface AddProductModalProps {
   initialMode: 'camera' | 'barcode' | 'manual' | 'batch';
@@ -59,9 +60,14 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   // OCR & Recognition State
   const [isScanning, setIsScanning] = useState(false);
   const [scanPreviewImage, setScanPreviewImage] = useState<string | null>(null);
-  const [detectedProducts, setDetectedProducts] = useState<Array<{ name?: string; parents?: string; confidence?: number; bbox?: { xMin?: number; yMin?: number; xMax?: number; yMax?: number } }>>([]);
+  const [detectedProducts, setDetectedProducts] = useState<Array<{ name?: string; parents?: string; brand?: string; category?: string; shade?: string; specification?: string; confidence?: number; source?: string; evidence?: string; needsConfirmation?: boolean; bbox?: { xMin?: number; yMin?: number; xMax?: number; yMax?: number } }>>([]);
   const [detectedCodes, setDetectedCodes] = useState<Array<{ content: string; type: string; position?: { left: number; top: number; right: number; bottom: number } | null }>>([]);
   const [productDetectMessage, setProductDetectMessage] = useState<string | null>(null);
+  const [batchPreviewImage, setBatchPreviewImage] = useState<string | null>(null);
+  const [pendingBatchProducts, setPendingBatchProducts] = useState<BeautyProduct[]>([]);
+  const [pendingImportSelection, setPendingImportSelection] = useState<
+    { type: 'product'; product: BeautyProduct; index: number } | { type: 'all'; products: BeautyProduct[] } | null
+  >(null);
 
   // Barcode & QR Code Scanner Overlay State
   const [scannerType, setScannerType] = useState<'barcode' | 'qr'>('barcode');
@@ -90,6 +96,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   const [userNotes, setUserNotes] = useState('');
   const [ingredientsText, setIngredientsText] = useState('');
   const [allergenTagsText, setAllergenTagsText] = useState('');
+  const [formRecognitionSource, setFormRecognitionSource] = useState<'manual' | 'ocr'>('manual');
 
   // Stop video stream on unmount or mode change
   useEffect(() => {
@@ -212,12 +219,14 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
 
       const data = await response.json() as any;
       if (data.success && data.product) {
-        setScannedResult({
+        const result: ScannedProductResult = {
           barcode: data.barcode || code,
           scan_type: type,
           source: data.source,
           product: data.product
-        });
+        };
+        setScannedResult(result);
+        commitScannedResult(result);
       } else {
         setUnmatchedCode({ content: code, type });
       }
@@ -227,6 +236,20 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       setIsScanning(false);
       setTimeout(() => setScanSuccessAnimation(false), 800);
     }
+  };
+
+  const commitScannedResult = (result: ScannedProductResult) => {
+    const p = result.product;
+    const pao = p.pao_months || 12;
+    const opened = new Date().toISOString().split('T')[0];
+    const newProduct: BeautyProduct = {
+      id: `prod_${Date.now()}`,
+      brand: p.brand || '自选品牌', product_name: p.product_name || '待确认商品', category: p.category || 'skincare', subcategory: p.subcategory || '日常护理', shade_name: p.shade_name || undefined,
+      barcode: result.barcode, barcodeType: result.scan_type, barcodeVerified: true, recognitionSource: 'barcode', syncStatus: 'pending',
+      purchase_date: opened, opened_date: opened, pao_months: pao, expiry_date: calculateExpiry(opened, pao), quantity: 1, status: 'in_use', ingredients: p.ingredients || [], allergen_tags: p.allergen_tags || [], user_notes: p.user_notes || `通过${result.scan_type === 'barcode' ? '条形码' : '包装盒二维码'}智能录入，请核对字段。`, shelf_location: p.shelf_location || '主化妆台', list_status: 'none', usage_count: 0, price: p.price
+    };
+    onAddProduct(newProduct);
+    onClose();
   };
 
   // Apply scanned product to manual form
@@ -241,6 +264,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     setIngredientsText((p.ingredients || []).join(', '));
     setAllergenTagsText((p.allergen_tags || []).join(', '));
     setUserNotes(p.user_notes || '');
+    setFormRecognitionSource('ocr');
     setMode('manual');
     setScannedResult(null);
   };
@@ -248,34 +272,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   // Direct commit to vanity from scan
   const handleDirectCommitScanned = () => {
     if (!scannedResult) return;
-    const p = scannedResult.product;
-    const pao = p.pao_months || 12;
-    const expiry = calculateExpiry(openedDate, pao);
-
-    const newProduct: BeautyProduct = {
-      id: `prod_${Date.now()}`,
-      brand: p.brand || '自选品牌',
-      product_name: p.product_name,
-      category: p.category || 'skincare',
-      subcategory: p.subcategory || '日常护理',
-      shade_name: p.shade_name || undefined,
-      purchase_date: openedDate,
-      opened_date: openedDate,
-      pao_months: pao,
-      expiry_date: expiry,
-      quantity: 1,
-      status: 'in_use',
-      ingredients: p.ingredients || [],
-      allergen_tags: p.allergen_tags || [],
-      user_notes: p.user_notes || `通过${scannedResult.scan_type === 'barcode' ? '条形码' : '包装盒二维码'}智能录入`,
-      shelf_location: p.shelf_location || '主化妆台',
-      list_status: 'none',
-      usage_count: 0,
-      price: p.price
-    };
-
-    onAddProduct(newProduct);
-    onClose();
+    commitScannedResult(scannedResult);
   };
 
   // Handle OCR recognition
@@ -287,16 +284,16 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     }
     setIsScanning(true);
     try {
-      const response = await fetch('/api/ocr/recognize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: image
-        })
-      });
-      const data = await response.json() as any;
-      if (data.success && data.product) {
-        const p = Array.isArray(data.product.products) ? (data.product.products[0] || {}) : data.product;
+      const [productResponse, ocrResponse] = await Promise.all([
+        fetch('/api/product/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: image }) }),
+        fetch('/api/ocr/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: image }) })
+      ]);
+      const productData = await productResponse.json().catch(() => ({})) as any;
+      const data = await ocrResponse.json().catch(() => ({})) as any;
+      const candidate = Array.isArray(productData.products) ? (productData.products[0] || {}) : {};
+      const ocrProduct = data.success && data.product ? (Array.isArray(data.product.products) ? (data.product.products[0] || {}) : data.product) : {};
+      const p = { ...candidate, ...ocrProduct, brand: ocrProduct.brand || candidate.parents || candidate.brand, product_name: ocrProduct.product_name || ocrProduct.complete_product_name || candidate.name };
+      if ((productData.success && candidate.name) || (data.success && data.product)) {
         setBrand(p.brand || '');
         setProductName(p.product_name || p.complete_product_name || '');
         setCategory(p.category || 'skincare');
@@ -306,12 +303,17 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         setIngredientsText((p.ingredients || []).join(', '));
         setAllergenTagsText((p.allergen_tags || []).join(', '));
         setUserNotes(p.user_notes || '');
+        // Recognition only prepares a candidate. The user confirms the fields
+        // in the prefilled form before the shared save/enrichment pipeline runs.
+        setCameraError('已识别商品字段，请核对品牌、品名、规格和色号后确认保存。');
         setMode('manual');
       } else {
-        setCameraError(data.error || '腾讯云未识别到可用的包装文字，请换一张更清晰的照片。');
+        const reason = productData.error || data.error || '商品识别和 OCR 均未返回可用字段';
+        setCameraError(`${reason}。图片已保留，请调整光线或距离后重试；也可手动补全。`);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('Product photo recognition failed:', e);
+      setCameraError(e?.message || '识别请求失败，图片已保留，请重试。');
     } finally {
       setIsScanning(false);
     }
@@ -369,7 +371,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!productName.trim()) return;
-
     const expiry = calculateExpiry(openedDate, paoMonths);
     const newProduct: BeautyProduct = {
       id: `prod_${Date.now()}`,
@@ -389,55 +390,11 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       user_notes: userNotes.trim() || undefined,
       shelf_location: shelfLocation.trim() || '主化妆台',
       list_status: 'none',
-      usage_count: 0
+      usage_count: 0,
+      recognitionSource: formRecognitionSource
     };
 
     onAddProduct(newProduct);
-    onClose();
-  };
-
-  // Batch import demo simulation
-  const handleBatchImport = () => {
-    const sampleBatch: BeautyProduct[] = [
-      {
-        id: `prod_${Date.now()}_1`,
-        brand: 'CPB (肌肤之钥)',
-        product_name: '光透白密集焕亮隔离乳 (长管防晒隔离)',
-        category: 'base',
-        subcategory: '隔离霜',
-        size: '37ml',
-        purchase_date: '2026-08-01',
-        opened_date: '2026-08-10',
-        pao_months: 12,
-        expiry_date: '2027-08-10',
-        quantity: 1,
-        status: 'in_use',
-        ingredients: ['亮肌复合精华EX', '二氧化钛', '甘油'],
-        allergen_tags: [],
-        shelf_location: '主台·防晒区',
-        list_status: 'none',
-        usage_count: 12
-      },
-      {
-        id: `prod_${Date.now()}_2`,
-        brand: 'NARS',
-        product_name: '流光美肌清透蜜粉饼 (大白饼)',
-        category: 'base',
-        subcategory: '蜜粉饼',
-        purchase_date: '2026-05-10',
-        opened_date: '2026-05-20',
-        pao_months: 24,
-        expiry_date: '2028-05-20',
-        quantity: 1,
-        status: 'in_use',
-        ingredients: ['微晶矿物粉体', '角鲨烷', '维生素E'],
-        allergen_tags: [],
-        shelf_location: '抽屉一阶',
-        list_status: 'none',
-        usage_count: 35
-      }
-    ];
-    onAddBatchProducts(sampleBatch);
     onClose();
   };
 
@@ -449,27 +406,59 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     const reader = new FileReader();
     reader.onload = async () => {
       const imageBase64 = String(reader.result || '');
+      setBatchPreviewImage(imageBase64);
       setIsScanning(true);
       setProductDetectMessage('正在调用腾讯云商品识别，定位图片中的多个商品…');
       try {
         const [productResponse, barcodeResponse, ocrResponse] = await Promise.allSettled([
           fetch('/api/product/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64 }) }),
           fetch('/api/barcode/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64 }) }),
-          fetch('/api/ocr/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64 }) })
+          fetch('/api/ocr/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, batch: true }) })
         ]);
         const productData = productResponse.status === 'fulfilled' ? await productResponse.value.json() as any : { success: false };
         const barcodeData = barcodeResponse.status === 'fulfilled' ? await barcodeResponse.value.json() as any : { success: false };
         const ocrData = ocrResponse.status === 'fulfilled' ? await ocrResponse.value.json() as any : { success: false };
         if (!productData.success && !barcodeData.success && !ocrData.success) throw new Error('商品、条码和 OCR 均未返回结果');
-        const detectedByProductApi = Array.isArray(productData.products) ? productData.products : [];
-        const ocrProducts = Array.isArray(ocrData.product?.products) ? ocrData.product.products : [];
-        const products = detectedByProductApi.length ? detectedByProductApi : ocrProducts.map((item: any) => ({ name: item.complete_product_name || item.product_name || item.brand || '待确认商品', parents: item.brand || item.category || 'AI/OCR 辅助识别', confidence: Number(item.confidence || 0), bbox: null }));
+        const candidates = normalizeRecognitionCandidates(productData, ocrData);
+        const products = candidates.map(candidate => ({ name: candidate.productName, parents: candidate.brand || '待确认品牌', brand: candidate.brand, category: candidate.category, shade: candidate.shade, specification: candidate.specification, confidence: candidate.confidence, source: candidate.source, evidence: candidate.evidence, needsConfirmation: candidate.needsConfirmation, bbox: candidate.boundingBox || undefined }));
         const codes = Array.isArray(barcodeData.codes) ? barcodeData.codes : [];
         setDetectedProducts(products);
         setDetectedCodes(codes);
+        const imported = products.map((item: any, index: number): BeautyProduct => {
+          const matchedCode = codeForProduct(item, codes);
+          const rawName = String(item.name || '待确认商品').trim();
+          const rawParent = String(item.parents || 'AI 辅助识别').trim();
+          return {
+            id: `prod_ai_${Date.now()}_${index}`,
+            brand: rawParent,
+            product_name: rawName,
+            category: /口红|唇膏|唇釉|腮红|眼影|睫毛|眉/.test(rawName) ? (/口红|唇膏|唇釉/.test(rawName) ? 'lip' : /眼影|睫毛|眉/.test(rawName) ? 'eye' : 'base') : 'skincare',
+            subcategory: '待确认',
+            shade_name: item.shade || undefined,
+            size: item.specification || undefined,
+            barcode: matchedCode?.content,
+            barcodeType: matchedCode?.type,
+            barcodeVerified: Boolean(matchedCode),
+            recognitionSource: productData.success ? 'product-api' : 'ai',
+            syncStatus: 'pending',
+            purchase_date: new Date().toISOString().slice(0, 10),
+            opened_date: new Date().toISOString().slice(0, 10),
+            pao_months: 12,
+            expiry_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+            quantity: 1,
+            status: 'in_use',
+            ingredients: [],
+            allergen_tags: [],
+            user_notes: '由商品识别/OCR 自动录入，请核对品牌、品名和规格。',
+            shelf_location: '主化妆台·待确认',
+            list_status: 'none',
+            usage_count: 0
+          };
+        });
+        setPendingBatchProducts(imported);
         const parts = [`商品 ${products.length} 件`, `条码 ${codes.length} 个`];
         if (ocrData.success) parts.push('OCR 已完成');
-        setProductDetectMessage(`${parts.join(' · ')}，请逐件核对后录入。`);
+        setProductDetectMessage(`${parts.join(' · ')}，请选择单件导入或全部导入。识别结果尚未写入化妆台。`);
       } catch (error: any) {
         setDetectedProducts([]);
         setDetectedCodes([]);
@@ -481,21 +470,36 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const codeForProduct = (product: { bbox?: { xMin?: number; yMin?: number; xMax?: number; yMax?: number } }) => {
+  const codeForProduct = (product: { bbox?: { xMin?: number; yMin?: number; xMax?: number; yMax?: number } }, codeList = detectedCodes) => {
     const box = product.bbox;
     if (!box) return undefined;
     const centerX = (Number(box.xMin || 0) + Number(box.xMax || 0)) / 2;
     const centerY = (Number(box.yMin || 0) + Number(box.yMax || 0)) / 2;
-    return detectedCodes.find((code) => {
+    return codeList.find((code) => {
       const pos = code.position;
       if (!pos) return false;
       const codeCenterX = (pos.left + pos.right) / 2;
       const codeCenterY = (pos.top + pos.bottom) / 2;
       return codeCenterX >= Number(box.xMin || 0) && codeCenterX <= Number(box.xMax || 0) && codeCenterY >= Number(box.yMin || 0) && codeCenterY <= Number(box.yMax || 0);
-    }) || detectedCodes.filter((code) => code.position).sort((a, b) => {
+    }) || codeList.filter((code) => code.position).sort((a, b) => {
       const ac = a.position!; const bc = b.position!;
       return Math.hypot((ac.left + ac.right) / 2 - centerX, (ac.top + ac.bottom) / 2 - centerY) - Math.hypot((bc.left + bc.right) / 2 - centerX, (bc.top + bc.bottom) / 2 - centerY);
     })[0];
+  };
+
+  const confirmPendingImport = () => {
+    if (!pendingImportSelection) return;
+    if (pendingImportSelection.type === 'all') {
+      onAddBatchProducts(pendingImportSelection.products);
+      setPendingBatchProducts([]);
+      setProductDetectMessage('已全部导入化妆台，请继续核对商品信息。');
+    } else {
+      onAddProduct(pendingImportSelection.product);
+      setPendingBatchProducts(prev => prev.filter((_, i) => i !== pendingImportSelection.index));
+      setDetectedProducts(prev => prev.filter((_, i) => i !== pendingImportSelection.index));
+      setProductDetectMessage(`已导入「${pendingImportSelection.product.product_name}」，剩余商品仍在待确认列表。`);
+    }
+    setPendingImportSelection(null);
   };
 
   return (
@@ -1009,6 +1013,14 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                 <span>AI 正在识别包装文字与 PAO 符号，并提取成分表...</span>
               </div>
             )}
+            {cameraError && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-800">
+                <p>{cameraError}</p>
+                {scanPreviewImage && !isScanning && (
+                  <button type="button" onClick={() => { void handleRecognize(scanPreviewImage); }} className="mt-2 rounded-lg bg-amber-700 px-3 py-1.5 font-semibold text-white">重试识别</button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1199,20 +1211,39 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
               <input type="file" accept="image/*" className="hidden" onChange={handleProductShelfUpload} disabled={isScanning} />
             </label>
             {productDetectMessage && <p className="text-[11px] text-stone-600 bg-stone-50 rounded-xl p-3">{productDetectMessage}</p>}
-            {detectedProducts.length > 0 && (
+            {batchPreviewImage && (
+              <img src={batchPreviewImage} alt="已上传的化妆柜照片" className="w-full max-h-56 object-contain rounded-2xl border border-stone-200 bg-stone-50" />
+            )}
+            {(detectedProducts.length > 0 || detectedCodes.length > 0) && (
               <div className="space-y-2">
                 {detectedProducts.map((product, index) => (
                   <div key={`${product.name}-${index}`} className="flex items-center justify-between rounded-xl border border-stone-200 p-3 text-xs">
                     <div><span className="font-semibold text-stone-800">{product.name || '待确认商品'}</span><span className="block text-[10px] text-stone-500">{product.parents || '腾讯云商品识别'} · 置信度 {Math.round(Number(product.confidence || 0))}%</span>{codeForProduct(product) && <span className="block text-[10px] text-emerald-700">{codeForProduct(product)!.type} · {codeForProduct(product)!.content}</span>}</div>
-                    <button type="button" onClick={() => { setProductName(product.name || ''); setBrand(product.parents || ''); setMode('manual'); }} className="px-3 py-1.5 rounded-lg bg-[#962F43] text-white text-[10px]">补充并录入</button>
+                    <div className="flex items-center gap-1.5"><button type="button" onClick={() => { setProductName(product.name || ''); setBrand(product.parents || ''); setMode('manual'); }} className="px-2.5 py-1.5 rounded-lg border border-stone-200 text-stone-700 text-[10px]">编辑</button><button type="button" disabled={!pendingBatchProducts[index]} onClick={() => { const pending = pendingBatchProducts[index]; if (pending) setPendingImportSelection({ type: 'product', product: pending, index }); }} className="px-2.5 py-1.5 rounded-lg bg-[#962F43] text-white text-[10px] disabled:cursor-not-allowed disabled:opacity-40">{pendingBatchProducts[index] ? '导入此产品' : '已导入'}</button></div>
                   </div>
                 ))}
-                {detectedProducts.length === 0 && detectedCodes.map((code, index) => <div key={`${code.content}-${index}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs"><span className="font-semibold">已识别 {code.type}</span><span className="block text-[10px] break-all">{code.content}</span><span className="block text-[10px] text-stone-500">未能可靠关联到商品，请手动确认</span></div>)}
+                {detectedCodes.map((code, index) => <div key={`${code.content}-${index}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs"><span className="font-semibold">已识别 {code.type}</span><span className="block text-[10px] break-all">{code.content}</span><span className="block text-[10px] text-stone-500">已加入待确认结果，请核对后再导入</span></div>)}
               </div>
             )}
-            <button type="button" onClick={handleBatchImport} className="w-full py-2.5 px-4 border border-stone-200 text-stone-600 rounded-2xl text-xs font-medium hover:bg-stone-50 transition-colors flex items-center justify-center gap-2">
-              <Layers className="w-4 h-4" /><span>使用演示数据快速导入</span>
-            </button>
+            {pendingBatchProducts.length > 0 && <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs"><span className="text-emerald-900">待确认 {pendingBatchProducts.length} 件，当前尚未写入化妆台</span><button type="button" onClick={() => setPendingImportSelection({ type: 'all', products: pendingBatchProducts })} className="rounded-lg bg-emerald-700 px-3 py-1.5 font-semibold text-white">全部导入</button></div>}
+          </div>
+        )}
+
+        {pendingImportSelection && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="import-confirm-title">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+              <h3 id="import-confirm-title" className="text-base font-bold text-stone-900">确认导入方式</h3>
+              <p className="mt-2 text-xs leading-relaxed text-stone-600">
+                {pendingImportSelection.type === 'all'
+                  ? `即将导入全部 ${pendingImportSelection.products.length} 件识别结果。`
+                  : `即将导入产品「${pendingImportSelection.product.product_name}」。`}
+                <br />导入后会写入你的化妆台，是否继续？
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={() => setPendingImportSelection(null)} className="rounded-xl px-4 py-2 text-xs text-stone-600 hover:bg-stone-100">取消</button>
+                <button type="button" onClick={confirmPendingImport} className="rounded-xl bg-[#962F43] px-4 py-2 text-xs font-semibold text-white hover:bg-[#7f2638]">确认导入</button>
+              </div>
+            </div>
           </div>
         )}
       </div>

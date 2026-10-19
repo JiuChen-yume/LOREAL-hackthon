@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   Search, 
   Bell, 
@@ -63,10 +63,43 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
   const [showWeatherDetailModal, setShowWeatherDetailModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(() => {
+    try { return localStorage.getItem('vanity_avatar_url'); } catch { return null; }
+  });
+  const [avatarSaved, setAvatarSaved] = useState(() => {
+    try { return Boolean(localStorage.getItem('vanity_avatar_url')); } catch { return false; }
+  });
+  const [avatarStatus, setAvatarStatus] = useState<'idle' | 'generating' | 'success' | 'error'>('idle');
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('请选择 JPG、PNG 或 WEBP 图片'); return; }
+    if (file.size > 8 * 1024 * 1024) { showToast('照片不能超过 8MB'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const imageBase64 = String(reader.result || '');
+      setAvatarStatus('generating');
+      try {
+        const response = await fetch('/api/avatar/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, style: 'cartoon', prompt: '将人物照片转换为自然、保留主要五官与发型特征的卡通虚拟形象，干净背景，柔和色彩' }) });
+        const data = await response.json() as any;
+        if (!response.ok || !data.success || !data.imageUrl) throw new Error(data.error || '头像生成失败');
+        setAvatarUrl(data.imageUrl);
+        setAvatarStatus('success');
+        setAvatarSaved(false);
+        showToast('卡通虚拟形象已生成');
+      } catch (error: any) {
+        setAvatarStatus('error');
+        showToast(error?.message || '头像生成失败，请检查 Seedream 配置');
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const toggleTaskCompletion = (taskId: string, e: React.MouseEvent) => {
@@ -186,17 +219,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
 
         {/* Right Portrait with handwritten quote */}
-        <div className="absolute right-0 top-0 bottom-0 w-44 sm:w-52 pointer-events-none">
+        <div className="absolute right-0 top-0 bottom-0 w-44 sm:w-52">
           <img 
-            src={homePortraitImg} 
-            alt="AI 美妆陪伴" 
+            src={avatarUrl || homePortraitImg} 
+            alt={avatarUrl ? '我的卡通虚拟形象' : 'AI 美妆陪伴'} 
             className="w-full h-full object-cover object-top mask-linear-gradient"
           />
           <div className="absolute top-4 right-3 text-right max-w-[120px] pointer-events-none">
             <p className="text-[10px] font-serif text-rose-800/80 italic leading-tight drop-shadow-xs">
-              美丽，是一种持续的自我陪伴 ♡
+              {avatarUrl ? '这是你的专属卡通分身 ♡' : '美丽，是一种持续的自我陪伴 ♡'}
             </p>
           </div>
+          <div className="absolute bottom-3 right-3 pointer-events-auto flex gap-1.5">
+            {avatarUrl && !avatarSaved && <button type="button" onClick={() => { try { localStorage.setItem('vanity_avatar_url', avatarUrl); setAvatarSaved(true); showToast('虚拟形象已保存到本机'); } catch { showToast('当前浏览器无法保存头像'); } }} className="px-2.5 py-1.5 rounded-full bg-white/90 text-stone-900 text-[10px] font-semibold">保存</button>}
+            <button type="button" onClick={() => avatarInputRef.current?.click()} className="px-2.5 py-1.5 rounded-full bg-stone-900/80 text-white text-[10px] font-semibold backdrop-blur-sm">
+              {avatarStatus === 'generating' ? '生成中…' : avatarUrl ? '重新生成' : '上传照片生成'}
+            </button>
+          </div>
+          <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
         </div>
       </div>
 

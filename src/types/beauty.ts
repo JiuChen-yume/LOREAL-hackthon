@@ -9,6 +9,16 @@ export type ListRating = 'red' | 'yellow' | 'black' | 'none';
 export type TryOnProvider = 'tencent-effect' | 'local-lip-mask' | 'unavailable';
 export type TryOnStatus = 'unconfigured' | 'fallback' | 'verified' | 'unavailable';
 
+export type IngredientEnrichmentStatus = 'not_queried' | 'querying' | 'needs_verification' | 'confirmed' | 'failed' | 'not_found';
+
+export interface IngredientRecord {
+  name: string;
+  inci_name?: string;
+  source?: string;
+  source_url?: string;
+  verified?: boolean;
+}
+
 export interface TryOnConfig {
   provider: TryOnProvider;
   effectId?: string;
@@ -49,6 +59,18 @@ export interface BeautyProduct {
   status: ProductStatus;
   is_hidden?: boolean; // 支持隐私隐藏
   ingredients: string[];
+  ingredient_records?: IngredientRecord[];
+  ingredient_enrichment_status?: IngredientEnrichmentStatus;
+  ingredient_enrichment_source?: string;
+  ingredient_enrichment_source_url?: string;
+  ingredient_enrichment_queried_at?: string;
+  ingredient_enrichment_error?: string;
+  ingredient_analysis?: {
+    benefits?: string[];
+    cautions?: string[];
+    evidence?: string;
+    confidence?: number;
+  };
   allergen_tags: string[];
   user_notes?: string;
   shelf_location?: string;
@@ -56,6 +78,11 @@ export interface BeautyProduct {
   last_used_at?: string;
   usage_count: number;
   image_url?: string;
+  barcode?: string;
+  barcodeType?: string;
+  barcodeVerified?: boolean;
+  recognitionSource?: 'product-api' | 'ocr' | 'barcode' | 'ai' | 'manual';
+  syncStatus?: 'local' | 'pending' | 'synced' | 'failed';
   price?: number;
   repurpose_ideas?: string[];
 }
@@ -85,6 +112,15 @@ export interface RoutinePlan {
   morning_steps: CareStep[];
   evening_steps: CareStep[];
   created_at: string;
+  selected_product_ids?: string[];
+  today_makeup_products?: Array<{
+    product_id: string;
+    step: string;
+    routine_type?: 'morning' | 'evening' | 'both';
+    source: 'vanity' | 'makeup-workflow';
+    completed: boolean;
+  }>;
+  sync_status?: 'local' | 'pending' | 'synced' | 'failed';
 }
 
 export interface SkinFeedbackLog {
@@ -111,6 +147,11 @@ export interface MakeupLook {
   type: 'daily' | 'imitation' | 'cos';
   character_name?: string;
   inspiration_image?: string;
+  reference_image?: string;
+  generated_image?: string;
+  render_provider?: 'doubao-seedream' | 'tencent-effect' | 'local' | 'unavailable';
+  render_status?: 'pending' | 'ready' | 'failed' | 'unavailable';
+  rendered_layers?: GeneratedMakeupLayer[];
   description: string;
   occasion: string;
   matched_products: {
@@ -125,6 +166,32 @@ export interface MakeupLook {
   lighting_advice?: string;
   minimal_5min_tip: string;
   created_at: string;
+  layers?: MakeupLayer[];
+}
+
+export interface GeneratedMakeupLayer {
+  url?: string;
+  base64?: string;
+  name?: string;
+  description?: string;
+  zIndex?: number;
+  boundingBox?: { absolute?: number[]; normalized?: number[] };
+}
+
+export type MakeupLayerType = 'base' | 'brows' | 'eyeliner' | 'lashes' | 'eyeshadow' | 'blush' | 'contour' | 'highlight' | 'lips' | 'contacts' | 'fullLook';
+
+export interface MakeupLayer {
+  id: string;
+  type: MakeupLayerType;
+  region: string;
+  style?: string;
+  color?: string;
+  opacity: number;
+  feather: number;
+  productId?: string;
+  shade?: string;
+  enabled: boolean;
+  stepIndex: number;
 }
 
 export interface MallItem {

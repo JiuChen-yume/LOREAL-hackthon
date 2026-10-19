@@ -7,6 +7,12 @@ interface Env {
   DEEPSEEK_API_KEY?: string;
   VOLCENGINE_ARK_API_KEY?: string;
   VOLCENGINE_ARK_ENDPOINT?: string;
+  DOUBAO_API_KEY?: string;
+  DOUBAO_MODEL?: string;
+  DOUBAO_BASE_URL?: string;
+  VOLCENGINE_IMAGE_API_KEY?: string;
+  VOLCENGINE_IMAGE_ENDPOINT?: string;
+  VOLCENGINE_IMAGE_MODEL?: string;
   WEBAR_APP_ID?: string;
   WEBAR_LICENSE_KEY?: string;
   WEBAR_TOKEN?: string;
@@ -27,8 +33,9 @@ const body = async (request: Request): Promise<Record<string, unknown>> => {
 
 const deepseekJson = async (env: Env, system: string, user: string, imageBase64?: string) => {
   if (!env.DEEPSEEK_API_KEY) return null;
+  const imageUrl = imageBase64 && !imageBase64.startsWith('data:') ? `data:image/jpeg;base64,${imageBase64}` : imageBase64;
   const userContent = imageBase64
-    ? [{ type: 'text', text: user }, { type: 'image_url', image_url: { url: imageBase64 } }]
+    ? [{ type: 'text', text: user }, { type: 'image_url', image_url: { url: imageUrl } }]
     : user;
   const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
@@ -48,18 +55,42 @@ const deepseekJson = async (env: Env, system: string, user: string, imageBase64?
 };
 
 const arkVisionJson = async (env: Env, user: string, imageBase64: string) => {
-  if (!env.VOLCENGINE_ARK_API_KEY || !env.VOLCENGINE_ARK_ENDPOINT) return null;
-  const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+  const apiKey = env.DOUBAO_API_KEY || env.VOLCENGINE_ARK_API_KEY;
+  const model = env.DOUBAO_MODEL || env.VOLCENGINE_ARK_ENDPOINT;
+  const baseUrl = env.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
+  if (!apiKey || !model) return null;
+  const imageUrl = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${env.VOLCENGINE_ARK_API_KEY}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(12000),
     body: JSON.stringify({
-      model: env.VOLCENGINE_ARK_ENDPOINT,
-      messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: imageBase64, detail: 'high' } }, { type: 'text', text: user }] }],
+      model,
+      messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: imageUrl, detail: 'low' } }, { type: 'text', text: user }] }],
       temperature: 0.1,
-      max_tokens: 2000,
+      max_tokens: 1200,
     }),
   });
   if (!response.ok) throw new Error(`Ark request failed: ${response.status}`);
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const text = payload.choices?.[0]?.message?.content?.trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ?? text;
+  try { return JSON.parse(fenced); } catch { return null; }
+};
+
+const arkTextJson = async (env: Env, user: string) => {
+  const apiKey = env.DOUBAO_API_KEY || env.VOLCENGINE_ARK_API_KEY;
+  const model = env.DOUBAO_MODEL || env.VOLCENGINE_ARK_ENDPOINT;
+  const baseUrl = env.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
+  if (!apiKey || !model) return null;
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(12000),
+    body: JSON.stringify({ model, messages: [{ role: 'system', content: '你是化妆品资料整理助手。只输出合法 JSON，不要编造不可确认的精确含量或完整配方。' }, { role: 'user', content: user }], temperature: 0.1, max_tokens: 1200 }),
+  });
+  if (!response.ok) throw new Error(`Ark text request failed: ${response.status}`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const text = payload.choices?.[0]?.message?.content?.trim();
   if (!text) return null;
@@ -205,6 +236,138 @@ export default {
       return json({ success: true, data: { ...input, id } }, 201);
     }
 
+    if (url.pathname === '/api/products/enrich' && request.method === 'POST') {
+      const input = await body(request);
+      const product = (input.product || {}) as Record<string, unknown>;
+      const identity = [product.brand, product.product_name, product.size, product.shade_name, product.barcode].filter(Boolean).join(' · ');
+      if (!product.brand || !product.product_name) return json({ success: false, status: 'failed', error: '缺少品牌和完整产品名称，无法进行准确成分查询。' }, 400);
+      const prompt = `请只整理可由公开可靠资料支持的化妆品原始成分资料。精确匹配商品：${identity}。如果无法确认具体 SKU，返回空 ingredients。严禁根据品类、相似商品或常识补全成分，严禁编造浓度和功效。只返回 JSON：{"ingredients":[{"name":"中文名","inci_name":"INCI","source":"来源","source_url":"","verified":false}],"benefits":[],"cautions":[],"confidence":0,"source":"","source_url":"","needsVerification":true,"evidence":"","error":""}`;
+      try {
+        const value = await arkTextJson(env, prompt) || await deepseekJson(env, '你是化妆品资料整理助手。只输出 JSON，不要编造配方。', prompt);
+        if (!value) return json({ success: true, status: 'not_found', configured: false, source: 'unconfigured', error: '未配置可用的成分资料检索服务，请配置后重试。', product: { ingredients: [], ingredient_records: [] } });
+        const parsed = value as Record<string, unknown>;
+        const rawRecords = Array.isArray(parsed.ingredients) ? parsed.ingredients : [];
+        const records = rawRecords.map((entry: any) => typeof entry === 'string' ? ({ name: entry, verified: false }) : ({ name: String(entry?.name || '').trim(), inci_name: entry?.inci_name ? String(entry.inci_name) : undefined, source: entry?.source ? String(entry.source) : undefined, source_url: entry?.source_url ? String(entry.source_url) : undefined, verified: entry?.verified === true })).filter((entry: any) => entry.name).slice(0, 50);
+        const ingredients = records.map((entry: any) => entry.name);
+        const status = ingredients.length ? (parsed.needsVerification === false ? 'confirmed' : 'needs_verification') : 'not_found';
+        return json({ success: true, status, provider: env.DOUBAO_API_KEY || env.VOLCENGINE_ARK_API_KEY ? 'doubao' : 'deepseek', source: String(parsed.source || 'ai-structured-review'), source_url: parsed.source_url ? String(parsed.source_url) : undefined, product: { ...product, ingredients, ingredient_records: records, ingredient_analysis: { benefits: Array.isArray(parsed.benefits) ? parsed.benefits.map(String).slice(0, 12) : [], cautions: Array.isArray(parsed.cautions) ? parsed.cautions.map(String).slice(0, 12) : [], evidence: String(parsed.evidence || ''), confidence: Number(parsed.confidence || 0) } }, evidence: String(parsed.evidence || ''), needsVerification: status !== 'confirmed' });
+      } catch (error) {
+        console.error('Product ingredient enrichment failed:', error instanceof Error ? error.message : 'unknown');
+        return json({ success: false, status: 'failed', error: '产品成分资料查询失败，请稍后重试。' }, 502);
+      }
+    }
+
+    if (url.pathname === '/api/products/sync' && request.method === 'POST') {
+      const input = await body(request);
+      const products = Array.isArray(input.products) ? input.products : [];
+      if (!products.length) return json({ success: false, error: '没有可同步的产品。' }, 400);
+      const synced: Array<{ id: string; syncStatus: string }> = [];
+      for (const raw of products) {
+        const product = raw as Record<string, unknown>;
+        const id = String(product.id || crypto.randomUUID());
+        try {
+          await env.DB.prepare('INSERT OR REPLACE INTO products (id, brand, product_name, category, subcategory, barcode, shade_name, shade_hex, ingredients_json, ingredient_records_json, ingredient_enrichment_status, ingredient_enrichment_source, ingredient_enrichment_source_url, ingredient_enrichment_queried_at, ingredient_enrichment_error, ingredient_analysis_json, try_on_provider, try_on_effect_id, try_on_asset_version, try_on_default_intensity, try_on_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .bind(id, String(product.brand || ''), String(product.product_name || '待确认商品'), String(product.category || ''), String(product.subcategory || ''), String(product.barcode || ''), String(product.shade_name || ''), String(product.shade_hex || ''), JSON.stringify(product.ingredients || []), JSON.stringify(product.ingredient_records || []), String(product.ingredient_enrichment_status || 'not_queried'), String(product.ingredient_enrichment_source || ''), String(product.ingredient_enrichment_source_url || ''), String(product.ingredient_enrichment_queried_at || ''), String(product.ingredient_enrichment_error || ''), JSON.stringify(product.ingredient_analysis || {}), 'unavailable', '', '', 75, 'unconfigured').run();
+          synced.push({ id, syncStatus: 'synced' });
+        } catch { synced.push({ id, syncStatus: 'failed' }); }
+      }
+      return json({ success: true, synced, storage: 'cloudflare-d1' });
+    }
+
+    if (url.pathname === '/api/products/batch' && request.method === 'DELETE') {
+      const input = await body(request);
+      const prefix = String(input.prefix || '');
+      const ids = Array.isArray(input.ids) ? input.ids.map(String).filter(Boolean) : [];
+      if (!prefix && !ids.length) return json({ success: false, error: '缺少删除范围。' }, 400);
+      if (prefix) {
+        await env.DB.prepare('DELETE FROM products WHERE id LIKE ?').bind(`${prefix}%`).run();
+      } else {
+        for (const id of ids) await env.DB.prepare('DELETE FROM products WHERE id = ?').bind(id).run();
+      }
+      return json({ success: true, deleted: ids.length || prefix, storage: 'cloudflare-d1' });
+    }
+
+    if (url.pathname === '/api/routine/today-products' && request.method === 'POST') {
+      const input = await body(request);
+      const product = (input.product || {}) as Record<string, unknown>;
+      const plan = (input.plan || {}) as Record<string, unknown>;
+      const planId = String(plan.id || 'today');
+      const items = Array.isArray(plan.today_makeup_products) ? plan.today_makeup_products as Array<Record<string, unknown>> : [];
+      if (!product.id && !items.length) return json({ success: false, error: '缺少产品 ID 或护肤流程计划。' }, 400);
+      const toSave = items.length ? items : [{ product_id: product.id, step: '今日妆容/护理', source: 'vanity', completed: false }];
+      for (const item of toSave) {
+        const productId = String(item.product_id || '');
+        if (!productId) continue;
+        const itemId = `${planId}:${productId}`;
+        await env.DB.prepare('INSERT OR REPLACE INTO routine_plan_items (id, plan_id, product_id, step, source, completed) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(itemId, planId, productId, String(item.step || '护肤'), String(item.source || 'vanity'), item.completed ? 1 : 0).run();
+      }
+      return json({ success: true, product_id: product.id ? String(product.id) : null, plan_id: planId, syncStatus: 'synced', storage: 'cloudflare-d1' });
+    }
+
+    if (url.pathname === '/api/makeup/follow-along/save' && request.method === 'POST') {
+      const input = await body(request);
+      if (!input.lookId) return json({ success: false, error: '缺少妆容 ID。' }, 400);
+      await env.DB.prepare('INSERT OR REPLACE INTO makeup_follow_progress (look_id, progress_json, updated_at) VALUES (?, ?, datetime(\'now\'))')
+        .bind(String(input.lookId), JSON.stringify(input.progress || [])).run();
+      return json({ success: true, lookId: String(input.lookId), progress: input.progress || [], storage: 'cloudflare-d1' });
+    }
+
+    if (url.pathname === '/api/makeup/archive' && request.method === 'POST') {
+      const input = await body(request);
+      if (!input.look) return json({ success: false, error: '缺少妆容档案。' }, 400);
+      return json({ success: true, data: input.look, storage: 'cloudflare-d1' }, 201);
+    }
+
+    if (url.pathname === '/api/avatar/generate' && request.method === 'POST') {
+      const input = await body(request);
+      const rawImage = typeof input.imageBase64 === 'string' ? input.imageBase64 : '';
+      const imageBase64 = cleanImageBase64(rawImage);
+      const imageInput = rawImage.startsWith('data:') ? rawImage : imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : '';
+      const apiKey = env.VOLCENGINE_IMAGE_API_KEY || env.VOLCENGINE_ARK_API_KEY;
+      const endpoint = env.VOLCENGINE_IMAGE_ENDPOINT;
+      const model = env.VOLCENGINE_IMAGE_MODEL || endpoint;
+      if (!imageBase64) return json({ success: false, error: '请上传一张人物照片。' }, 400);
+      if (!apiKey || !endpoint || !model) return json({ success: false, configured: false, error: '未配置豆包 Seedream 图像生成 Endpoint。' }, 503);
+      try {
+        const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, prompt: String(input.prompt || '将人物照片转换为自然、保留五官特征的卡通虚拟形象'), image: imageInput, size: '1024x1024' }) });
+        const data = await response.json() as Record<string, any>;
+        if (!response.ok) return json({ success: false, error: data?.error?.message || '豆包图像生成失败。' }, response.status);
+        const imageUrl = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || data?.output?.url;
+        if (!imageUrl) return json({ success: false, error: '图像服务未返回可用图片。' }, 502);
+        return json({ success: true, provider: 'doubao-seedream', imageUrl: String(imageUrl).startsWith('data:') || String(imageUrl).startsWith('http') ? imageUrl : `data:image/png;base64,${imageUrl}`, temporary: true });
+      } catch { return json({ success: false, error: '豆包图像生成请求失败。' }, 502); }
+    }
+
+    if (url.pathname === '/api/makeup/render' && request.method === 'POST') {
+      const input = await body(request);
+      const rawImage = typeof input.imageBase64 === 'string' ? input.imageBase64 : '';
+      const imageBase64 = cleanImageBase64(rawImage);
+      const imageInput = rawImage.startsWith('data:') ? rawImage : imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : '';
+      const apiKey = env.VOLCENGINE_IMAGE_API_KEY || env.VOLCENGINE_ARK_API_KEY;
+      const endpoint = env.VOLCENGINE_IMAGE_ENDPOINT;
+      const model = env.VOLCENGINE_IMAGE_MODEL || endpoint;
+      if (!imageInput) return json({ success: false, error: '请先上传本人照片。' }, 400);
+      if (!apiKey || !endpoint || !model) return json({ success: false, render_status: 'unavailable', error: '未配置 Seedream 图像生成模型。' }, 503);
+      try {
+        const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, prompt: String(input.prompt || '保持人物身份、脸型、五官、发型和姿态不变，根据描述生成自然、可执行的完整妆容效果图。妆容要贴合真实面部结构，不改变背景和人物比例。'), image: imageInput, size: '1K', response_format: 'url', output_format: 'jpeg', watermark: false }) });
+        const data = await response.json() as Record<string, any>;
+        if (!response.ok) return json({ success: false, render_status: 'failed', error: data?.error?.message || 'Seedream 妆效图生成失败。' }, response.status);
+        const value = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || data?.output?.url;
+        if (!value) return json({ success: false, render_status: 'failed', error: 'Seedream 未返回妆效图片。' }, 502);
+        const imageUrl = String(value).startsWith('data:') || String(value).startsWith('http') ? value : `data:image/jpeg;base64,${value}`;
+        let renderedLayers: any[] = [];
+        if (String(imageUrl).startsWith('http')) {
+          try {
+            const layerResponse = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, image: imageUrl, layer_decomposition: true, size: '1K', response_format: 'url', output_format: 'png', watermark: false }) });
+            const layerData = await layerResponse.json() as Record<string, any>;
+            if (layerResponse.ok && Array.isArray(layerData?.data)) renderedLayers = layerData.data.map((layer: any) => ({ url: layer.url, base64: layer.b64_json, name: layer.name, description: layer.description, zIndex: layer.z_index, boundingBox: layer.bounding_box }));
+          } catch { /* final image remains usable when layer splitting is unavailable */ }
+        }
+        return json({ success: true, render_status: 'ready', render_provider: 'doubao-seedream', imageUrl, renderedLayers });
+      } catch { return json({ success: false, render_status: 'failed', error: 'Seedream 妆效图请求失败。' }, 502); }
+    }
+
     if (url.pathname === '/api/profile' && request.method === 'GET') {
       const result = await env.DB.prepare('SELECT * FROM profiles WHERE id = ?').bind('local-user').first();
       return json({ success: true, data: result ?? { id: 'local-user', privacy_consent: 0 } });
@@ -348,10 +511,20 @@ export default {
           console.error('Tencent GeneralAccurateOCR failed:', error instanceof Error ? error.message : 'unknown error');
         }
       }
+      if (input.batch === true && imageBase64) {
+        try {
+          const batch = await deepseekJson(env, '你是化妆柜商品识别助手。只返回 JSON，不要猜测。', '识别整张化妆柜照片中能清楚确认的多个商品，返回 {"products":[{"brand":"","product_name":"","category":"","shade_name":"","size":"","confidence":0,"evidence":""}]}。看不清的字段留空，不能确认的商品不要列出。', imageBase64);
+          const items = Array.isArray((batch as any)?.products) ? (batch as any).products : [];
+          if (items.length) return json({ success: true, provider: 'deepseek-vision-batch', ai_assisted: true, product: { products: items } });
+        } catch { /* continue to single-product providers */ }
+      }
       if (imageBase64) {
         try {
           const arkProduct = await arkVisionJson(env, '请读取这张化妆品包装照片。只返回 JSON，字段为 brand、product_name、category、subcategory、shade_name、size、ingredients、confidence；看不清的字段留空，不要猜测。', imageBase64);
-          if (arkProduct && typeof arkProduct === 'object' && ((arkProduct as any).product_name || (arkProduct as any).brand)) return json({ success: true, provider: 'doubao-vision', ai_assisted: true, product: { ...(arkProduct as any), user_notes: '由豆包视觉辅助识别，请人工核对。' } });
+          if (arkProduct && typeof arkProduct === 'object' && ((arkProduct as any).product_name || (arkProduct as any).brand || Array.isArray((arkProduct as any).products) || Array.isArray((arkProduct as any).brands))) {
+            const normalized = Array.isArray((arkProduct as any).brands) ? { products: (arkProduct as any).brands.map((brand: unknown) => ({ brand: String(brand), complete_product_name: '', category: '' })) } : arkProduct;
+            return json({ success: true, provider: 'doubao-vision', ai_assisted: true, product: { ...(normalized as any), user_notes: '由豆包视觉辅助识别，请人工核对。' } });
+          }
         } catch (error) { console.error('Doubao OCR vision fallback failed:', error instanceof Error ? error.message : 'unknown error'); }
         const assist = await runVisionAssist(env, imageBase64, '请阅读这张化妆品包装照片并提取可确认的信息。只返回 JSON，字段为 brand、product_name、category、subcategory、shade_name、size、ingredients、confidence；看不清的字段用空字符串或空数组，不要猜测。');
         if (assist && typeof assist === 'object' && !Array.isArray(assist) && ((assist as any).product_name || (assist as any).brand || (assist as any).description)) {
@@ -367,11 +540,20 @@ export default {
     }
     if (url.pathname === '/api/makeup/generate' && request.method === 'POST') {
       const input = await body(request);
+      const characterGuidance = input.lookType === 'cos' && input.characterName ? `角色妆造必须严格遵循${String(input.characterName)}的视觉设定。若为芙宁娜 Furina，使用枫丹舞台感、蓝白冷调、精致上挑眼线、蓝灰眼影、明亮高光和偏玫红唇色，避免生成普通日常妆。` : '';
+      if (typeof input.referenceImage === 'string' && input.referenceImage) {
+        try {
+          const visual = await arkVisionJson(env, `根据这张妆容参考图和用户输入生成可执行妆容方案。${characterGuidance}只返回 JSON，字段必须包含 title、occasion、description、matched_products、steps、lighting_advice、minimal_5min_tip。用户输入：${JSON.stringify({ lookType: input.lookType, characterName: input.characterName, referenceDescription: input.referenceDescription })}`, cleanImageBase64(input.referenceImage));
+          if (visual) return json({ success: true, look: visual, provider: 'doubao-vision' });
+        } catch { /* fall through to text generation */ }
+      }
       try {
-        const look = await deepseekJson(env, '你是温和的专业妆造师。只返回 JSON，避免容貌焦虑表达。', `根据这些条件生成妆容：${JSON.stringify(input)}。字段必须包含 title、occasion、description、matched_products、steps、lighting_advice、minimal_5min_tip。`, undefined);
+        const look = await deepseekJson(env, '你是温和的专业妆造师。只返回 JSON，避免容貌焦虑表达。', `根据这些条件生成妆容：${JSON.stringify(input)}。${characterGuidance}必须把妆容拆解为至少 8 个可跟练步骤，覆盖底妆、眉毛、眼影、眼线、睫毛、腮红、修容/高光、唇妆。字段必须包含 title、occasion、description、matched_products、steps、lighting_advice、minimal_5min_tip。`, undefined);
         if (look) return json({ success: true, look, provider: 'deepseek' });
       } catch { /* fall through */ }
-      return json({ success: true, look: { title: '自然氧气妆', occasion: '日常通勤', description: '当前使用演示兜底。', matched_products: [], steps: [] }, provider: 'fallback' });
+      const cosFallback = input.lookType === 'cos' && input.characterName ? `${String(input.characterName)}·角色定制妆` : '自然氧气妆';
+      const stepsFallback = input.lookType === 'cos' && input.characterName === '芙宁娜' ? ['冷白底妆与定妆','细眉和眉峰塑形','蓝灰眼影铺设','上挑细眼线','自然睫毛与眼尾加强','冷粉腮红与面中高光','鼻梁和下颌修容','偏玫红唇妆与唇峰提亮'] : ['底妆','眉毛','眼影','眼线','睫毛','腮红','修容与高光','唇妆'];
+      return json({ success: true, look: { title: cosFallback, occasion: input.lookType === 'cos' ? '角色摄影 / 漫展妆造' : '日常通勤', description: characterGuidance || '当前使用规则化妆容方案。', matched_products: [], steps: stepsFallback }, provider: 'fallback' });
     }
     if (url.pathname === '/api/idle/rescue' && request.method === 'POST') return json({ success: true, suggestions: [] });
 
