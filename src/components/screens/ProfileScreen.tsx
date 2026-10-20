@@ -25,6 +25,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { BeautyProduct, BlacklistIngredient, SkinFeedbackLog, IdolCompanionProfile } from '../../types/beauty';
+import { UserProfile } from '../../types/auth';
 import { skincareCalm, vanityHero, makeupLookImg } from '../../data/mockData';
 
 interface ProfileScreenProps {
@@ -41,6 +42,9 @@ interface ProfileScreenProps {
   onAddFeedbackLog?: (log: SkinFeedbackLog) => void;
   onExportData: () => void;
   onShowPrivacyModal: () => void;
+  currentUser?: UserProfile | null;
+  onOpenLogin?: () => void;
+  onLogout?: () => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -56,7 +60,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onUpdateProductListStatus,
   onAddFeedbackLog,
   onExportData,
-  onShowPrivacyModal
+  onShowPrivacyModal,
+  currentUser,
+  onOpenLogin,
+  onLogout
 }) => {
   const [activeTab, setActiveTab] = useState<'red' | 'yellow' | 'black' | 'ingredients' | 'feedbacks'>('red');
   const [autoFilterBlacklist, setAutoFilterBlacklist] = useState(true);
@@ -179,6 +186,43 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </div>
       )}
 
+      <section className="bg-gradient-to-br from-white via-white to-[#FAF6F3] rounded-3xl p-4 sm:p-5 border border-[#EDE5DE] shadow-xs space-y-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="relative shrink-0">
+              <img src={currentUser?.avatar || vanityHero} alt="个人头像" className="w-13 h-13 rounded-full object-cover border-2 border-amber-300 shadow-xs" />
+              <span className="absolute -bottom-1 -right-1 px-1.5 py-0.5 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-full text-[9px] font-bold shadow-2xs">{currentUser?.memberLevel || '黑金挚友'}</span>
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-bold font-serif text-stone-900">{currentUser?.nickname || '晚晚'}</h2>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${currentUser?.isGuest ? 'bg-stone-200 text-stone-600' : 'bg-emerald-100 text-emerald-800'}`}>{currentUser?.isGuest ? '访客模式' : '云端同步中'}</span>
+              </div>
+              <p className="text-[11px] text-stone-500 mt-0.5 truncate">{currentUser?.phone ? `账号: ${currentUser.phone}` : '已开启私密肤质本地加密'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button type="button" onClick={onOpenLogin} className="px-3 py-1.5 bg-[#962F43]/10 hover:bg-[#962F43]/20 text-[#962F43] border border-[#962F43]/30 rounded-xl text-xs font-semibold transition-all flex items-center gap-1">
+              <UserCheck className="w-3.5 h-3.5" /><span>{currentUser?.isGuest ? '登录账号' : '切换账号'}</span>
+            </button>
+            {!currentUser?.isGuest && <button type="button" onClick={onLogout} className="px-2 py-1.5 rounded-xl bg-stone-100 border border-stone-200/60 text-[10px] text-stone-600">退出</button>}
+            <button type="button" onClick={() => setShowSettingsModal(true)} className="p-2 rounded-xl bg-stone-100 border border-stone-200/60 text-stone-700" title="设置周期与伴侣"><Settings className="w-4 h-4" /></button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
+          <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-800 border border-rose-200/60 font-medium flex items-center gap-1"><Sparkles className="w-3 h-3 text-rose-500" />{currentUser?.skinTone === 'cool_fair' ? '冷白调·冷一白' : currentUser?.skinTone === 'warm_light' ? '暖黄调·黄一白' : '中性透亮色'}</span>
+          <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200/60 font-medium flex items-center gap-1"><ShieldCheck className="w-3 h-3 text-emerald-600" />{currentUser?.skinType === 'combination_oily' ? '混油敏感' : currentUser?.skinType === 'dry' ? '大干皮修护' : '健康水油平衡'}</span>
+          <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200/60 font-medium flex items-center gap-1"><Flame className="w-3 h-3 text-amber-600" />生理期：{cyclePhase === 'menstrual' ? '月经期' : cyclePhase === 'follicular' ? '卵泡期·黄金护肤期' : cyclePhase === 'ovulation' ? '排卵期' : '黄体期'}</span>
+          <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-800 border border-purple-200/60 font-medium flex items-center gap-1"><Bot className="w-3 h-3 text-purple-600" />伴侣：{idolProfile?.idolName || currentUser?.idolCompanion || '田柾国'}</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-stone-200/60 text-center">
+          <div className="p-2 rounded-xl bg-white border border-[#EDE5DE] shadow-2xs"><div className="text-sm font-bold text-stone-900">{products.length}</div><div className="text-[10px] text-stone-500 mt-0.5">收录单品</div></div>
+          <div className="p-2 rounded-xl bg-white border border-[#EDE5DE] shadow-2xs"><div className="text-sm font-bold text-[#3D634B]">{products.filter(p => p.status === 'in_use').length}</div><div className="text-[10px] text-stone-500 mt-0.5">开封在用</div></div>
+          <div className="p-2 rounded-xl bg-white border border-[#EDE5DE] shadow-2xs"><div className="text-sm font-bold text-rose-600">{blacklist.length}</div><div className="text-[10px] text-stone-500 mt-0.5">避雷成分</div></div>
+          <div className="p-2 rounded-xl bg-white border border-[#EDE5DE] shadow-2xs"><div className="text-sm font-bold text-amber-600">{currentUser?.streakDays || 18}天</div><div className="text-[10px] text-stone-500 mt-0.5">连续打卡</div></div>
+        </div>
+      </section>
+
       {/* 1. Header with Search & Settings */}
       <div className="pt-1 flex items-start justify-between">
         <div className="space-y-0.5">
@@ -195,17 +239,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <button 
-            type="button" 
-            onClick={() => setShowSettingsModal(true)}
-            className="p-2 rounded-full bg-white border border-[#EDE5DE] text-stone-700 hover:text-stone-900 shadow-2xs hover:bg-stone-50 transition-colors flex items-center gap-1 text-xs font-semibold" 
-            title="周期与陪伴设置"
-          >
-            <Settings className="w-4 h-4 text-stone-600" />
-            <span className="hidden sm:inline">周期与偏好</span>
-          </button>
-        </div>
+        <div />
       </div>
 
       {/* 2. Top Segmented Tabs (红榜 | 黄榜 | 黑榜 | 成分避雷库 | 使用反馈) */}

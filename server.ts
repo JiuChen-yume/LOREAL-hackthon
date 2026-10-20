@@ -39,6 +39,142 @@ const withTimeout = <T>(promise: Promise<T>, ms: number = 7000): Promise<T> => {
 
 const cleanTencentImage = (value: unknown) => typeof value === 'string' ? value.replace(/^data:[^;]+;base64,/, '') : '';
 
+const resolveSeedreamConfig = () => {
+  const configured = String(process.env.VOLCENGINE_IMAGE_ENDPOINT || '').trim();
+  const baseUrl = String(process.env.VOLCENGINE_IMAGE_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3').replace(/\/$/, '');
+  const endpoint = configured.startsWith('http')
+    ? (configured.endsWith('/images/generations') ? configured : `${configured.replace(/\/$/, '')}/images/generations`)
+    : `${baseUrl}/images/generations`;
+  const model = String(process.env.VOLCENGINE_IMAGE_MODEL || (configured.startsWith('ep-') ? configured : process.env.VOLCENGINE_ARK_ENDPOINT || '')).trim();
+  const apiKey = process.env.VOLCENGINE_IMAGE_API_KEY || process.env.VOLCENGINE_ARK_API_KEY || process.env.DOUBAO_API_KEY;
+  return { endpoint, model, apiKey };
+};
+
+const asImageDataUrl = async (value: string) => {
+  if (value.startsWith('data:')) return value;
+  if (!value.startsWith('http')) return value;
+  const response = await fetch(value, { signal: AbortSignal.timeout(15000) });
+  if (!response.ok) throw new Error(`Seedream image download failed: ${response.status}`);
+  const mime = response.headers.get('content-type') || 'image/png';
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return `data:${mime};base64,${buffer.toString('base64')}`;
+};
+
+const generateSeedreamImage = async (image: string, prompt: string) => {
+  const { apiKey, endpoint, model } = resolveSeedreamConfig();
+  if (!apiKey || !endpoint || !model) throw new Error('未配置豆包 Seedream 图像生成服务。');
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(45000),
+    body: JSON.stringify({ model, prompt, image, size: '1K', response_format: 'url', output_format: 'jpeg', watermark: false }),
+  });
+  const data = await response.json() as any;
+  if (!response.ok) throw new Error(data?.error?.message || `Seedream 图像生成失败（HTTP ${response.status}）。`);
+  const value = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || data?.output?.url || data?.output?.image_url;
+  if (!value || typeof value !== 'string') throw new Error('Seedream 未返回可用图片。');
+  return value.startsWith('data:') || value.startsWith('http') ? value : `data:image/jpeg;base64,${value}`;
+};
+
+const searchProductSources = async (query: string) => {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) return [];
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(12000),
+    body: JSON.stringify({ api_key: apiKey, query, search_depth: 'advanced', max_results: 5, include_answer: false }),
+  });
+  if (!response.ok) throw new Error(`Product source search failed: ${response.status}`);
+  const data = await response.json() as { results?: Array<{ title?: string; url?: string; content?: string }> };
+  return (data.results || []).filter(item => item.url && item.content).map(item => ({
+    title: String(item.title || '').slice(0, 180),
+    url: String(item.url),
+    content: String(item.content).slice(0, 1200),
+  }));
+};
+
+const normalizeMakeupSteps = (rawSteps: unknown, rawDetails: unknown) => {
+  const details = Array.isArray(rawDetails) ? rawDetails : [];
+  const steps = Array.isArray(rawSteps) ? rawSteps.map((item: any) => {
+    if (typeof item === 'string') return item.trim();
+    return [item?.title || item?.name || item?.step || '', item?.detail || item?.instruction || item?.description || ''].filter(Boolean).join('：');
+  }).filter(Boolean) : [];
+  const total = Math.max(steps.length, details.length);
+  const stepDetails = Array.from({ length: total }, (_, index) => {
+    const source = details[index] && typeof details[index] === 'object' ? details[index] as Record<string, any> : {};
+    const title = String(source.title || source.name || steps[index] || `第${index + 1}步`);
+    const text = `${title} ${steps[index] || ''} ${source.targetArea || source.target_area || source.region || ''}`;
+    const rawType = String(source.layerType || source.layer_type || source.type || '').toLowerCase();
+    const layerType = /base|底妆|粉底|妆前/.test(`${rawType} ${text}`) ? 'base'
+      : /brow|眉/.test(`${rawType} ${text}`) ? 'brows'
+      : /eyeliner|眼线/.test(`${rawType} ${text}`) ? 'eyeliner'
+      : /lash|睫/.test(`${rawType} ${text}`) ? 'lashes'
+      : /eyeshadow|眼影|眼妆/.test(`${rawType} ${text}`) ? 'eyeshadow'
+      : /blush|腮红/.test(`${rawType} ${text}`) ? 'blush'
+      : /contour|修容/.test(`${rawType} ${text}`) ? 'contour'
+      : /highlight|高光/.test(`${rawType} ${text}`) ? 'highlight'
+      : /lip|唇|口红/.test(`${rawType} ${text}`) ? 'lips'
+      : /contact|美瞳|隐形/.test(`${rawType} ${text}`) ? 'contacts'
+      : 'fullLook';
+    const targetArea = String(source.targetArea || source.target_area || source.area || source.region || (
+      layerType === 'base' ? '全脸' : layerType === 'brows' ? '眉毛' : layerType === 'eyeliner' ? '眼线' :
+        layerType === 'lashes' ? '睫毛' : layerType === 'eyeshadow' ? '眼周' : layerType === 'blush' ? '颧骨/苹果肌' :
+          layerType === 'contour' ? '鼻梁/下颌' : layerType === 'highlight' ? '鼻梁/面中' : layerType === 'lips' ? '上下唇' : '面部整体'
+    ));
+    const method = Array.isArray(source.method) ? source.method.map(String) : [source.method || source.tip || source.instruction || steps[index]].filter(Boolean).map(String);
+    return {
+      id: String(source.id || `step_${index + 1}`),
+      title,
+      targetArea,
+      layerType,
+      productId: source.productId || source.product_id,
+      productName: source.productName || source.product_name || source.vanityProduct,
+      shade: source.shade || source.shade_name,
+      tool: source.tool,
+      dosage: source.dosage || source.amount,
+      method,
+      pitfalls: Array.isArray(source.pitfalls) ? source.pitfalls.map(String) : [],
+      checklist: Array.isArray(source.checklist) ? source.checklist.map(String) : [],
+      estimatedMin: Number(source.estimatedMin || source.estimated_min || 2),
+    };
+  });
+  return {
+    steps: stepDetails.map((detail, index) => steps[index] || detail.title),
+    step_details: stepDetails,
+  };
+};
+
+const buildIngredientFallbackReport = (products: any[], blacklist: string[] = []) => {
+  const safeProducts = Array.isArray(products) ? products : [];
+  const normalize = (p: any) => {
+    const ingredients = Array.isArray(p?.ingredients) ? p.ingredients.map(String) : [];
+    const records = Array.isArray(p?.ingredient_records) ? p.ingredient_records.map((item: any) => `${item?.name || ''} ${item?.inci_name || ''}`) : [];
+    return `${p?.brand || ''} ${p?.product_name || p?.name || ''} ${ingredients.join(' ')} ${records.join(' ')}`.toLowerCase();
+  };
+  const has = (text: string, patterns: RegExp[]) => patterns.some(pattern => pattern.test(text));
+  const retinol = [/retinol/i, /\ba[- ]?r/i, /视黄醇|维a醇|a醇/i];
+  const acids = [/\baha\b/i, /\bbha\b/i, /glycolic|salicylic|lactic|mandelic/i, /果酸|甘醇酸|水杨酸|乳酸|杏仁酸/];
+  const vitaminC = [/\bvitamin\s*c\b/i, /ascorbic/i, /vitamin[- ]?c/i, /维生素c|抗坏血酸/];
+  const alcohol = [/\balcohol\b/i, /denat/i];
+  const entries = safeProducts.map(product => ({ product, text: normalize(product) }));
+  const conflicts: any[] = [];
+  const addConflict = (a: any, b: any, ingredientA: string, ingredientB: string, suggestion: string) => conflicts.push({
+    product_a: a.product?.product_name || a.product?.name || 'Product A', product_b: b.product?.product_name || b.product?.name || 'Product B', ingredient_a: ingredientA, ingredient_b: ingredientB,
+    risk_description: 'High-activity ingredients may increase dryness, stinging, redness, and barrier stress when layered.', suggestion
+  });
+  for (let i = 0; i < entries.length; i += 1) for (let j = i + 1; j < entries.length; j += 1) {
+    const left = entries[i]; const right = entries[j];
+    const lr = has(left.text, retinol), rr = has(right.text, retinol), la = has(left.text, acids), ra = has(right.text, acids), lc = has(left.text, vitaminC), rc = has(right.text, vitaminC);
+    if ((lr && ra) || (rr && la)) addConflict(left, right, lr ? 'Retinol / A-alcohol' : 'AHA/BHA acids', lr ? 'AHA/BHA acids' : 'Retinol / A-alcohol', 'Use on separate mornings/evenings or alternate days; start low frequency and use sunscreen.');
+    if ((lr && rc) || (rr && lc)) addConflict(left, right, lr ? 'Retinol / A-alcohol' : 'Vitamin C', lr ? 'Vitamin C' : 'Retinol / A-alcohol', 'Separate usage times and monitor for irritation.');
+  }
+  const blacklisted = blacklist.filter(item => entries.some(({ text }) => text.includes(String(item).toLowerCase())));
+  const hasAlcohol = entries.some(({ text }) => has(text, alcohol));
+  const missingIngredients = entries.some(({ product }) => !Array.isArray(product?.ingredients) || product.ingredients.length === 0);
+  return { safety_level: conflicts.length || blacklisted.length ? 'danger' : hasAlcohol || missingIngredients ? 'warning' : 'safe', summary: conflicts.length ? 'Detected high-activity ingredient overlap; adjust usage timing.' : blacklisted.length ? `Detected blacklist ingredients: ${blacklisted.join(', ')}` : missingIngredients ? 'Some selected products have no verified ingredient list; safety cannot be confirmed until the package ingredients are added.' : hasAlcohol ? 'Volatile alcohol detected; patch test first if skin is sensitive.' : 'No obvious high-stimulation conflict detected.', conflicts, ingredient_overlap: [], missing_ingredient_products: entries.filter(({ product }) => !Array.isArray(product?.ingredients) || product.ingredients.length === 0).map(({ product }) => product?.product_name || product?.name || 'Unverified product'), recommended_order: safeProducts.map((product, index) => ({ step: index + 1, product_name: product?.product_name || product?.name || 'Unverified product', timing: has(normalize(product), retinol) ? 'Night only / alternate days' : 'Morning and evening', reason: index === 0 ? 'Use lighter water-based textures first' : 'Layer from thin to rich' })), disclaimer: 'Cosmetic compatibility guidance only; not a medical diagnosis.' };
+};
+
 const arkVisionJson = async (user: string, imageBase64: string) => {
   const key = process.env.DOUBAO_API_KEY || process.env.VOLCENGINE_ARK_API_KEY;
   const endpoint = process.env.DOUBAO_MODEL || process.env.VOLCENGINE_ARK_ENDPOINT;
@@ -193,18 +329,32 @@ app.post('/api/products/enrich', async (req, res) => {
   const product = req.body?.product || {};
   const identity = [product.brand, product.product_name, product.size, product.shade_name, product.barcode].filter(Boolean).join(' · ');
   if (!product.brand || !product.product_name) return res.status(400).json({ success: false, status: 'failed', error: '缺少品牌和完整产品名称，无法进行准确成分查询。' });
-  const prompt = `请只整理可由公开可靠资料支持的化妆品原始成分资料。精确匹配商品：${identity}。优先官方产品页/公开成分表，其次合法数据库；如果无法确认具体 SKU，返回空 ingredients，并列出候选或原因。严禁根据品类、相似商品或常识补全成分，严禁编造浓度和功效。只返回 JSON：{"ingredients":[{"name":"中文名","inci_name":"INCI","source":"来源","source_url":"https://...","verified":false}],"benefits":[],"cautions":[],"confidence":0,"source":"","source_url":"","needsVerification":true,"evidence":"","error":""}`;
+  const promptBase = `请只整理有证据支持的化妆品资料，精确匹配商品：${identity}。优先官方产品页和包装成分表；无法确认具体 SKU 时，ingredients 必须为空。严禁按品类、相似商品或常识补全成分，严禁编造浓度、功效、评价或评分。review_summary 只能总结提供的公开来源，区分消费者评价与官方宣称。只返回 JSON：{"ingredients":[{"name":"中文名","inci_name":"INCI","source":"来源","source_url":"https://...","verified":false}],"benefits":[],"cautions":[],"review_summary":"","review_sources":[{"title":"","url":""}],"confidence":0,"source":"","source_url":"","needsVerification":true,"evidence":"","error":""}`;
   try {
-    const value = await arkTextJson(prompt);
-    if (!value) return res.json({ success: true, status: 'not_found', configured: false, source: 'unconfigured', error: '未配置可用的成分资料检索服务，请配置后重试。', product: { ingredients: [], ingredient_records: [] } });
+    const sources = await searchProductSources(`${identity} official ingredients review`);
+    const prompt = `${promptBase}\n公开搜索结果（仅限以下材料，不可自行伪造来源）：${JSON.stringify(sources)}`;
+    const arkValue = await arkTextJson(prompt);
+    const geminiValue = !arkValue && ai ? await withTimeout(ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: { responseMimeType: 'application/json' },
+    }), 9000).then(response => {
+      try { return JSON.parse(response.text || ''); } catch { return null; }
+    }) : null;
+    const value = arkValue || geminiValue;
+    if (!value) {
+      const ingredients = Array.isArray(product.ingredients) ? product.ingredients.map(String) : [];
+      return res.json({ success: true, status: ingredients.length ? 'needs_verification' : 'not_found', configured: false, source: 'user-or-package-data', search_sources: sources, product: { ...product, ingredients, ingredient_records: ingredients.map((name: string) => ({ name, verified: false, source: 'user-or-package-data' })), ingredient_analysis: { benefits: [], cautions: ['请以包装成分表为准；当前未能完成公开资料核验。'], review_summary: sources.length ? '已找到公开来源，但 AI 摘要服务未配置，未生成评价摘要。' : '未配置公开搜索或 AI 服务，暂时无法查询评价和成分。', evidence: '', confidence: 0 } }, needsVerification: true });
+    }
     const parsed = value as Record<string, unknown>;
     const rawRecords = Array.isArray(parsed.ingredients) ? parsed.ingredients : [];
     const records = rawRecords.map((entry: any) => typeof entry === 'string' ? ({ name: entry, verified: false }) : ({ name: String(entry?.name || '').trim(), inci_name: entry?.inci_name ? String(entry.inci_name) : undefined, source: entry?.source ? String(entry.source) : undefined, source_url: entry?.source_url ? String(entry.source_url) : undefined, verified: entry?.verified === true })).filter((entry: any) => entry.name).slice(0, 50);
     const ingredients = records.map((entry: any) => entry.name);
     const status = ingredients.length ? (parsed.needsVerification === false ? 'confirmed' : 'needs_verification') : 'not_found';
-    const source = String(parsed.source || 'ai-structured-review');
-    const sourceUrl = parsed.source_url ? String(parsed.source_url) : undefined;
-    return res.json({ success: true, status, provider: process.env.DOUBAO_API_KEY || process.env.VOLCENGINE_ARK_API_KEY ? 'doubao' : 'deepseek', source, source_url: sourceUrl, product: { ...product, ingredients, ingredient_records: records, ingredient_analysis: { benefits: Array.isArray(parsed.benefits) ? parsed.benefits.map(String).slice(0, 12) : [], cautions: Array.isArray(parsed.cautions) ? parsed.cautions.map(String).slice(0, 12) : [], evidence: String(parsed.evidence || ''), confidence: Number(parsed.confidence || 0) } }, evidence: String(parsed.evidence || ''), needsVerification: status !== 'confirmed' });
+    const source = String(parsed.source || (sources.length ? 'public-search+ai-summary' : 'ai-summary-unverified'));
+    const sourceUrl = parsed.source_url ? String(parsed.source_url) : sources[0]?.url;
+    const reviewSources = Array.isArray(parsed.review_sources) ? parsed.review_sources : sources.map(item => ({ title: item.title, url: item.url }));
+    return res.json({ success: true, status, provider: arkValue ? 'doubao' : geminiValue ? 'gemini' : 'unavailable', source, source_url: sourceUrl, search_sources: reviewSources, product: { ...product, ingredients, ingredient_records: records, ingredient_analysis: { benefits: Array.isArray(parsed.benefits) ? parsed.benefits.map(String).slice(0, 12) : [], cautions: Array.isArray(parsed.cautions) ? parsed.cautions.map(String).slice(0, 12) : [], review_summary: String(parsed.review_summary || ''), evidence: String(parsed.evidence || ''), confidence: Number(parsed.confidence || 0) } }, evidence: String(parsed.evidence || ''), needsVerification: status !== 'confirmed' });
   } catch (error) {
     console.error('Product ingredient enrichment failed:', error instanceof Error ? error.message : 'unknown');
     return res.status(502).json({ success: false, status: 'failed', error: '产品成分资料查询失败，请稍后重试。' });
@@ -237,9 +387,7 @@ app.post('/api/avatar/generate', async (req, res) => {
   const rawImage = typeof req.body?.imageBase64 === 'string' ? req.body.imageBase64 : '';
   const imageBase64 = cleanTencentImage(rawImage);
   const imageInput = rawImage.startsWith('data:') ? rawImage : imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : '';
-  const apiKey = process.env.VOLCENGINE_IMAGE_API_KEY || process.env.VOLCENGINE_ARK_API_KEY;
-  const endpoint = process.env.VOLCENGINE_IMAGE_ENDPOINT;
-  const model = process.env.VOLCENGINE_IMAGE_MODEL || endpoint;
+  const { apiKey, endpoint, model } = resolveSeedreamConfig();
   if (!imageBase64) return res.status(400).json({ success: false, error: '请上传一张人物照片。' });
   if (!apiKey || !endpoint || !model) return res.status(503).json({ success: false, configured: false, error: '未配置豆包 Seedream 图像生成 Endpoint。请设置 VOLCENGINE_IMAGE_ENDPOINT、VOLCENGINE_IMAGE_MODEL 和密钥。' });
   try {
@@ -254,27 +402,53 @@ app.post('/api/avatar/generate', async (req, res) => {
   }
 });
 
+app.post('/api/makeup/render-layer', async (req, res) => {
+  const rawImage = typeof req.body?.imageBase64 === 'string' ? req.body.imageBase64 : '';
+  const imageBase64 = cleanTencentImage(rawImage);
+  const imageInput = rawImage.startsWith('data:') ? rawImage : imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : '';
+  const step = req.body?.step && typeof req.body.step === 'object' ? req.body.step : {};
+  const stepIndex = Number(req.body?.stepIndex);
+  if (!imageInput) return res.status(400).json({ success: false, error: '请先上传本人照片。' });
+  if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex > 30 || !step.title) return res.status(400).json({ success: false, error: '缺少有效的妆容步骤信息。' });
+  const { apiKey, endpoint, model } = resolveSeedreamConfig();
+  if (!apiKey || !endpoint || !model) return res.status(503).json({ success: false, configured: false, render_status: 'unavailable', error: '未配置豆包 Seedream 图像生成服务。' });
+  const title = String(step.title).slice(0, 120);
+  const targetArea = String(step.targetArea || '面部整体').slice(0, 100);
+  const layerType = String(step.layerType || 'fullLook').slice(0, 40);
+  const method = Array.isArray(step.method) ? step.method.slice(0, 4).map(String).join('；') : '';
+  const prompt = `只完成妆容跟练的第 ${stepIndex + 1} 步「${title}」，目标区域：${targetArea}，妆容图层：${layerType}。步骤操作：${method}。生成可用于教学对照的完整人像照片：保持上传者身份、脸型、五官、发型、姿态、肤色、背景和光线不变，只表现本步骤目标区域的妆效，其余区域保持自然素颜/当前步骤前状态；不要添加文字、水印、拼贴或改变人物。${String(req.body?.style || '').slice(0, 500)}`;
+  try {
+    const imageUrl = await generateSeedreamImage(imageInput, prompt);
+    return res.json({ success: true, render_status: 'ready', render_provider: 'doubao-seedream', layer: { stepIndex, type: layerType, name: title, description: targetArea, url: imageUrl } });
+  } catch (error) {
+    console.error('Seedream step image generation failed:', error instanceof Error ? error.message : 'unknown');
+    return res.status(502).json({ success: false, render_status: 'failed', error: error instanceof Error ? error.message : '豆包步骤图生成失败。' });
+  }
+});
+
 app.post('/api/makeup/render', async (req, res) => {
   const rawImage = typeof req.body?.imageBase64 === 'string' ? req.body.imageBase64 : '';
   const imageBase64 = cleanTencentImage(rawImage);
   const imageInput = rawImage.startsWith('data:') ? rawImage : imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : '';
-  const apiKey = process.env.VOLCENGINE_IMAGE_API_KEY || process.env.VOLCENGINE_ARK_API_KEY;
-  const endpoint = process.env.VOLCENGINE_IMAGE_ENDPOINT;
-  const model = process.env.VOLCENGINE_IMAGE_MODEL || endpoint;
+  const { apiKey, endpoint, model } = resolveSeedreamConfig();
   if (!imageInput) return res.status(400).json({ success: false, error: '请先上传本人照片。' });
-  if (!apiKey || !endpoint || !model) return res.status(503).json({ success: false, render_status: 'unavailable', error: '未配置 Seedream 图像生成模型。' });
+  if (!apiKey || !endpoint || !model) return res.status(503).json({ success: false, configured: false, render_status: 'unavailable', error: '未配置豆包 Seedream 图像生成服务。' });
   try {
     const prompt = String(req.body?.prompt || '保持人物身份、脸型、五官、发型和姿态不变，根据描述生成自然、可执行的完整妆容效果图。妆容要贴合真实面部结构，不改变背景和人物比例。');
     const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, prompt, image: imageInput, size: '1K', response_format: 'url', output_format: 'jpeg', watermark: false }) });
     const data = await response.json() as any;
     if (!response.ok) return res.status(response.status).json({ success: false, render_status: 'failed', error: data?.error?.message || 'Seedream 妆效图生成失败。' });
     const value = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || data?.output?.url;
-    if (!value) return res.status(502).json({ success: false, render_status: 'failed', error: 'Seedream 未返回妆效图片。' });
+    if (!value) {
+      const steps = Array.isArray(req.body?.steps) ? req.body.steps : [];
+      return res.json({ success: true, render_status: 'fallback', render_provider: 'doubao-seedream', imageUrl: imageInput, renderedLayers: steps.map((step: any, index: number) => ({ name: step.title || `Step ${index + 1}`, description: step.targetArea || step.layerType || '', zIndex: index + 1, source: 'fallback' })) });
+    }
     const imageUrl = String(value).startsWith('data:') || String(value).startsWith('http') ? value : `data:image/jpeg;base64,${value}`;
     let renderedLayers: any[] = [];
-    if (String(imageUrl).startsWith('http')) {
+    if (imageUrl) {
       try {
-        const layerResponse = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, image: imageUrl, layer_decomposition: true, size: '1K', response_format: 'url', output_format: 'png', watermark: false }) });
+        const layerInput = await asImageDataUrl(imageUrl);
+        const layerResponse = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, prompt: '请将这张妆效图拆分为可独立编辑的图层：底图、底妆、眉毛、眼影、眼线与睫毛、腮红、修容与高光、唇妆。每个图层保持透明背景、边界贴合真实面部，不要改变人物身份。', image: layerInput, layer_decomposition: true, size: '1K', response_format: 'url', output_format: 'png', watermark: false }) });
         const layerData = await layerResponse.json() as any;
         if (layerResponse.ok && Array.isArray(layerData?.data)) renderedLayers = layerData.data.map((layer: any) => ({ url: layer.url, base64: layer.b64_json, name: layer.name, description: layer.description, zIndex: layer.z_index, boundingBox: layer.bounding_box }));
       } catch (error: any) { console.warn('Seedream layer decomposition failed:', error?.message || 'unknown error'); }
@@ -539,15 +713,15 @@ app.post('/api/home/generate-plan', async (req, res) => {
 // 2. Compatibility & Chemical Conflict Detection
 app.post('/api/compatibility/check', async (req, res) => {
   try {
-    const { products, blacklist } = req.body;
+    const products = Array.isArray(req.body?.products) ? req.body.products : [];
+    const blacklist = Array.isArray(req.body?.blacklist) ? req.body.blacklist.map(String) : [];
+    if (products.length < 2 || products.length > 5) return res.status(400).json({ success: false, error: '成分搭配分析需要选择 2 至 5 件产品。' });
 
-    if (ai) {
-      try {
-        const prompt = `
+    const prompt = `
 你是一名资强化妆品配方师与护肤成分研究员。
 用户在化妆台上选取了以下几款产品进行搭配使用检测：
-选中的产品: ${JSON.stringify(products)}
-用户黑榜/避雷成分: ${JSON.stringify(blacklist || [])}
+选中的产品及已知成分: ${JSON.stringify(products)}
+用户黑榜/避雷成分: ${JSON.stringify(blacklist)}
 
 请进行严格的成分兼容性与刺激性审查：
 1. 是否存在成分冲突或高刺激重叠？例如：
@@ -556,6 +730,7 @@ app.post('/api/compatibility/check', async (req, res) => {
    - 多种高浓度酸类重复叠加
    - 是否命中了用户黑榜成分？
 2. 输出科学搭配建议（分早晚、隔天交替、使用顺序、等待间隔）。
+3. 对成分缺失的产品明确说明无法核验，不得猜测其配方；不要把透明质酸等常见名称一概当作刺激性酸。
 
 请返回 JSON 格式：
 {
@@ -586,23 +761,37 @@ app.post('/api/compatibility/check', async (req, res) => {
 }
 注意：只返回纯 JSON。
 `;
-
+    let parsed: any = null;
+    try { parsed = await arkTextJson(prompt); } catch (error) { console.warn('Doubao compatibility request failed:', error); }
+    let provider = parsed ? 'doubao' : 'rule-engine';
+    if (!parsed && ai) {
+      try {
         const response = await withTimeout(ai.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-          },
-        }), 6000);
-
-        const parsed = JSON.parse(response.text || '{}');
-        return res.json({ success: true, report: parsed });
-      } catch (e) {
-        console.warn('AI compatibility call timed out or failed, using rule engine', e);
+          config: { responseMimeType: 'application/json' },
+        }), 9000);
+        parsed = JSON.parse(response.text || '{}');
+        provider = 'gemini';
+      } catch (error) {
+        console.warn('AI compatibility call failed; using ingredient evidence rules', error);
       }
     }
 
-    // High quality deterministic rule engine fallback
+    const missingProducts = products.filter((product: any) => !Array.isArray(product?.ingredients) || product.ingredients.length === 0);
+    const report = parsed && typeof parsed === 'object'
+      ? parsed
+      : buildIngredientFallbackReport(products, blacklist);
+    if (missingProducts.length) {
+      report.safety_level = report.safety_level === 'danger' ? 'danger' : 'warning';
+      report.missing_ingredient_products = missingProducts.map((product: any) => product?.product_name || product?.name || '未命名产品');
+      report.summary = `${report.summary || ''} 以下产品成分表缺失，无法确认其完整搭配安全性：${report.missing_ingredient_products.join('、')}。`.trim();
+    }
+    if (!Array.isArray(report.conflicts)) report.conflicts = [];
+    if (!Array.isArray(report.recommended_order)) report.recommended_order = [];
+    return res.json({ success: true, report, provider });
+
+    // Legacy deterministic rule engine fallback (kept below for compatibility with older builds).
     const names = (products || []).map((p: any) => p.product_name + ' ' + (p.ingredients || []).join(' ')).join(' ');
     const hasRetinol = /视黄醇|A醇|Retinol/i.test(names);
     const hasAcids = /果酸|甘醇酸|水杨酸|乳酸|AHA|BHA/i.test(names);
@@ -660,13 +849,14 @@ app.post('/api/compatibility/check', async (req, res) => {
 });
 
 // 3. OCR / Product Camera Recognition
-app.post('/api/ocr/recognize', async (req, res) => {
+app.post(['/api/ocr/recognize', '/api/batch/recognize'], async (req, res) => {
   try {
     const { imageBase64 } = req.body;
+    const isBatchEndpoint = req.path === '/api/batch/recognize';
     if (!imageBase64) return res.status(400).json({ success: false, error: '请先拍摄或选择一张图片。' });
 
     const tencentImage = cleanTencentImage(imageBase64);
-    if (process.env.TENCENTCLOUD_SECRET_ID && process.env.TENCENTCLOUD_SECRET_KEY && tencentImage) {
+    if (!isBatchEndpoint && process.env.TENCENTCLOUD_SECRET_ID && process.env.TENCENTCLOUD_SECRET_KEY && tencentImage) {
       try {
         const response = await tencentCloudRequest({
           service: 'ocr', host: 'ocr.tencentcloudapi.com', action: 'GeneralAccurateOCR', version: '2018-11-19',
@@ -682,11 +872,11 @@ app.post('/api/ocr/recognize', async (req, res) => {
       }
     }
 
-    if (req.body?.batch === true && tencentImage) {
+    if ((req.body?.batch === true || isBatchEndpoint) && tencentImage) {
       try {
         const batch = await arkVisionJson('识别整张化妆柜照片中能清楚确认的多个商品。只返回 JSON：{"products":[{"brand":"","product_name":"","category":"","shade_name":"","size":"","confidence":0,"evidence":""}]}。看不清的字段留空，不能确认的商品不要列出。', tencentImage);
         const items = Array.isArray((batch as any)?.products) ? (batch as any).products : [];
-        if (items.length) return res.json({ success: true, provider: 'doubao-vision-batch', ai_assisted: true, product: { products: items } });
+        if (items.length) return res.json({ success: true, provider: 'doubao-vision-batch', ai_assisted: true, items, product: { products: items } });
       } catch (error: any) { console.warn('Doubao batch vision failed:', error?.message || 'unknown error'); }
     }
 
@@ -973,10 +1163,18 @@ app.post('/api/makeup/generate', async (req, res) => {
   const characterGuidance = req.body?.lookType === 'cos' && req.body?.characterName ? `角色约束：这是${String(req.body.characterName)}的角色妆造。若为芙宁娜 Furina，必须使用枫丹舞台感、蓝白冷调、精致上挑眼线、蓝灰眼影、明亮高光和偏玫红唇色，不能生成普通日常妆。` : '';
   if (req.body?.referenceImage) {
     try {
-      const visual = await arkVisionJson(`根据这张妆容参考图和用户输入生成可执行妆容方案。${characterGuidance}只返回 JSON，字段必须包含 title、occasion、description、matched_products、steps、lighting_advice、minimal_5min_tip。用户输入：${JSON.stringify({ lookType: req.body.lookType, characterName: req.body.characterName, referenceDescription: req.body.referenceDescription })}`, cleanTencentImage(req.body.referenceImage));
-      if (visual) return res.json({ success: true, look: visual, provider: 'doubao-vision' });
+      const visual = await arkVisionJson(`根据这张妆容参考图和用户输入生成可执行妆容方案。${characterGuidance}只返回 JSON，字段必须包含 title、occasion、description、matched_products、steps、step_details、lighting_advice、minimal_5min_tip。step_details 至少 8 项，每项包含 id、title、targetArea、layerType、tool、dosage、method、pitfalls、checklist、estimatedMin。用户输入：${JSON.stringify({ lookType: req.body.lookType, characterName: req.body.characterName, referenceDescription: req.body.referenceDescription })}`, cleanTencentImage(req.body.referenceImage));
+      if (visual) return res.json({ success: true, look: { ...visual, ...normalizeMakeupSteps(visual.steps, visual.step_details) }, provider: 'doubao-vision' });
     } catch (error: any) { console.warn('Doubao makeup reference analysis failed:', error?.message || 'unknown error'); }
   }
+  const lookPrompt = `根据用户需求生成完整的个性化妆容方案。只返回 JSON，包含 title、occasion、description、matched_products、steps、step_details、lighting_advice、minimal_5min_tip。至少 6 个步骤，每一步在 step_details 中与 steps 按索引一一对应，覆盖该妆容实际需要的底妆、眉眼、腮红/修容和唇妆。每项提供 title、targetArea、layerType、productName、tool、dosage、method、pitfalls、checklist、estimatedMin。不同风格和角色要有对应的色盘、手法与顺序，不要统一套用模板；只改变妆容，不评论或贬低外貌。角色要求：${characterGuidance || '无'} 用户需求：${JSON.stringify({ lookType: req.body?.lookType, characterName: req.body?.characterName, referenceDescription: req.body?.referenceDescription, vanityProducts: req.body?.vanityProducts, aestheticProfile: req.body?.aestheticProfile })}`;
+  try {
+    const doubaoLook = await arkTextJson(lookPrompt);
+    if (doubaoLook && typeof doubaoLook === 'object') {
+      const normalized = normalizeMakeupSteps((doubaoLook as any).steps, (doubaoLook as any).step_details);
+      if (normalized.steps.length >= 3) return res.json({ success: true, look: { ...(doubaoLook as any), ...normalized }, provider: 'doubao' });
+    }
+  } catch (error) { console.warn('Doubao makeup text generation failed:', error instanceof Error ? error.message : 'unknown'); }
   try {
     const { lookType, referenceDescription, vanityProducts, aestheticProfile } = req.body;
 
@@ -1008,6 +1206,9 @@ app.post('/api/makeup/generate', async (req, res) => {
   "steps": [
     "底妆...", "眉毛...", "眼影...", "眼线...", "睫毛...", "腮红...", "修容与高光...", "唇妆..."
   ],
+  "step_details": [
+    {"id":"step_1","title":"底妆","targetArea":"全脸","layerType":"base","tool":"海绵蛋","dosage":"少量多次","method":["由面中向外轻拍"],"pitfalls":["避免厚重覆盖"],"checklist":["边缘自然"],"estimatedMin":3}
+  ],
   "lighting_advice": "针对该场景的光线或持妆建议",
   "minimal_5min_tip": "如果赶时间，5分钟如何快速达成神态"
 }
@@ -1024,13 +1225,20 @@ app.post('/api/makeup/generate', async (req, res) => {
         }), 6000);
 
         const parsed = JSON.parse(response.text || '{}');
-        return res.json({ success: true, look: parsed });
+        return res.json({ success: true, look: { ...parsed, ...normalizeMakeupSteps(parsed.steps, parsed.step_details) }, provider: 'gemini' });
       } catch (e) {
         console.warn('AI makeup generation timed out, using fallback look', e);
       }
     }
 
-    // Realistic fallback
+    // Structured fallback keeps the follow-along workflow usable even when no text model is configured.
+    const fallbackSteps = lookType === 'cos' && req.body.characterName === '芙宁娜' ? ['冷白底妆与定妆','细眉和眉峰塑形','蓝灰眼影铺设','上挑细眼线','自然睫毛与眼尾加强','冷粉腮红与面中高光','鼻梁和下颌修容','偏玫红唇妆与唇峰提亮'] : ['先以保湿面霜轻揉平整两颊，海绵蛋由内而外轻压粉底液。','眉毛按目标妆容调整眉形和眉峰。','选用眼影盘浅色打底并加深眼尾。','沿真实眼型描绘眼线并夹翘睫毛。','自然睫毛与眼尾加强，避免结块。','腮红少量点在苹果肌或颧骨并向太阳穴晕开。','使用少量修容和高光强调面部结构。','口红薄涂并抿开边缘，检查唇形。'];
+    const fallbackLayerTypes = ['base', 'brows', 'eyeshadow', 'eyeliner', 'lashes', 'blush', 'contour', 'lips'];
+    const fallbackAreas = ['全脸', '眉毛', '眼窝', '眼型边界', '睫毛根部', '苹果肌/颧骨', '鼻梁/面中/下颌', '上下唇'];
+    const fallbackStepDetails = fallbackSteps.map((title: string, index: number) => ({
+      id: `step_${index + 1}`, title: title.split('：')[0], targetArea: fallbackAreas[index], layerType: fallbackLayerTypes[index], tool: '干净刷具或指腹', dosage: '少量多次',
+      method: [`按当前步骤的${title}区域操作，边缘向外晕染并保留原始纹理。`], pitfalls: ['避免覆盖非目标区域或一次使用过量'], checklist: ['左右协调、边缘自然、完成后再进入下一步'], estimatedMin: 3
+    }));
     const fallbackLook = {
       title: lookType === 'cos' ? `${req.body.characterName || '角色'}·角色定制妆` : '初秋暖阳·红茶微醺氧气妆',
       occasion: lookType === 'cos' ? '漫展拍摄 / 舞台COS / 角色摄影' : '日常通勤 / 闺蜜聚会 / 阳光外拍',
@@ -1058,7 +1266,8 @@ app.post('/api/makeup/generate', async (req, res) => {
           note: '薄擦唇内侧，余色用指腹轻按于两颊作为同色系腮红。'
         }
       ],
-      steps: lookType === 'cos' && req.body.characterName === '芙宁娜' ? ['冷白底妆与定妆','细眉和眉峰塑形','蓝灰眼影铺设','上挑细眼线','自然睫毛与眼尾加强','冷粉腮红与面中高光','鼻梁和下颌修容','偏玫红唇妆与唇峰提亮'] : ['先以保湿面霜轻揉平整两颊，海绵蛋由内而外轻压粉底液。','眉毛按目标妆容调整眉形和眉峰。','选用眼影盘浅色打底并加深眼尾。','沿真实眼型描绘眼线并夹翘睫毛。','口红点于手背揉匀，指腹轻点苹果肌往太阳穴轻推。','使用少量修容和高光强调面部结构。','口红薄涂并抿开边缘，检查唇形。','最后检查左右对称和整体妆面。'],
+      steps: fallbackSteps,
+      step_details: fallbackStepDetails,
       lighting_advice: '自然日光或室内暖光下光泽最佳；若在冷光舞台建议强化面中提亮。',
       minimal_5min_tip: '5分钟急速版：粉底局部遮瑕 + 口红一物兼顾唇颊，即刻呈现好气色。'
     };
@@ -1075,6 +1284,20 @@ app.post('/api/makeup/parse-tutorial', async (req, res) => {
   try {
     const { url, description, vanityProducts } = req.body;
     const inputText = (url || '') + ' ' + (description || '');
+    const tutorialPrompt = `把用户提供的妆教资料拆成可执行、逐步对应的跟练方案。只根据明确提供的链接描述/文字，不得声称看过无法访问的视频。不同教程必须保留自己的顺序、色彩、技法和用到的产品；不确定的信息留空。只返回 JSON：{"title":"","platform":"","creator":"","makeupStyle":"","summary":"","steps":["..."],"step_details":[{"id":"step_1","title":"","targetArea":"","layerType":"base|brows|eyeshadow|eyeliner|lashes|blush|contour|highlight|lips|contacts","tool":"","dosage":"","method":[""],"pitfalls":[""],"checklist":[""],"estimatedMin":2,"productName":""}],"stepDiagrams":[{"step":1,"title":"","area":"","tip":"","vanityProduct":""}],"lipSetting":{},"cheekSetting":{},"eyeSetting":{},"baseSetting":{}}。至少 4 个步骤，step_details 与 steps 一一对应。教程输入：${JSON.stringify({ url, description, vanityProducts: (Array.isArray(vanityProducts) ? vanityProducts : []).map((product: any) => ({ brand: product.brand, name: product.product_name, category: product.category, shade: product.shade_name })) })}`;
+    try {
+      const doubaoResult = await arkTextJson(tutorialPrompt);
+      if (doubaoResult && typeof doubaoResult === 'object') {
+        const raw = doubaoResult as Record<string, any>;
+        const diagrams = Array.isArray(raw.stepDiagrams) ? raw.stepDiagrams : [];
+        const steps = Array.isArray(raw.steps) ? raw.steps : diagrams.map((step: any) => `${step.title || ''}${step.tip ? `：${step.tip}` : ''}`);
+        const normalized = normalizeMakeupSteps(steps, raw.step_details || diagrams);
+        if (normalized.steps.length) {
+          const result = { ...raw, ...normalized, stepDiagrams: diagrams.length ? diagrams : normalized.step_details.map((step, index) => ({ step: index + 1, title: step.title, area: step.targetArea, tip: step.method.join('；'), vanityProduct: step.productName || '' })) };
+          return res.json({ success: true, result, look: { title: result.title || 'AI 妆教跟练', type: 'imitation', occasion: result.platform || '妆教跟练', description: result.summary || '', matched_products: [], steps: normalized.steps, step_details: normalized.step_details, minimal_5min_tip: '' }, provider: 'doubao' });
+        }
+      }
+    } catch (error) { console.warn('Doubao tutorial parsing failed:', error instanceof Error ? error.message : 'unknown'); }
 
     if (ai) {
       try {
@@ -1157,7 +1380,11 @@ ${JSON.stringify((vanityProducts || []).map((p: any) => ({ name: p.product_name,
 
         const parsed = JSON.parse(response.text || '{}');
         if (parsed.title) {
-          return res.json({ success: true, result: parsed });
+          const diagrams = Array.isArray(parsed.stepDiagrams) ? parsed.stepDiagrams : [];
+          const steps = Array.isArray(parsed.steps) ? parsed.steps : diagrams.map((step: any) => `${step.title || ''}${step.tip ? `：${step.tip}` : ''}`);
+          const normalized = normalizeMakeupSteps(steps, parsed.step_details || diagrams);
+          const result = { ...parsed, ...normalized, stepDiagrams: diagrams.length ? diagrams : normalized.step_details.map((step, index) => ({ step: index + 1, title: step.title, area: step.targetArea, tip: step.method.join('；'), vanityProduct: step.productName || '' })) };
+          return res.json({ success: true, result, look: { title: result.title, type: 'imitation', occasion: result.platform || '妆教跟练', description: result.summary || '', matched_products: [], steps: normalized.steps, step_details: normalized.step_details, minimal_5min_tip: '' }, provider: 'gemini' });
         }
       } catch (err) {
         console.warn('AI tutorial parse fallback:', err);
@@ -1232,7 +1459,8 @@ ${JSON.stringify((vanityProducts || []).map((p: any) => ({ name: p.product_name,
       ]
     };
 
-    return res.json({ success: true, result: fallbackResult });
+    const normalized = normalizeMakeupSteps(fallbackResult.stepDiagrams.map((step: any) => `${step.title}：${step.tip}`), fallbackResult.stepDiagrams);
+    return res.json({ success: true, result: { ...fallbackResult, ...normalized }, look: { title: fallbackResult.title, type: 'imitation', occasion: fallbackResult.platform, description: fallbackResult.summary, matched_products: [], steps: normalized.steps, step_details: normalized.step_details, minimal_5min_tip: '' }, provider: 'fallback' });
   } catch (error: any) {
     console.error('Error parsing makeup tutorial:', error);
     return res.status(500).json({ error: error.message || 'Tutorial parsing failed' });

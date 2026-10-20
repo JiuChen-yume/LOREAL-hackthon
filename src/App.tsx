@@ -30,6 +30,9 @@ import { CircularScreen } from './components/screens/CircularScreen';
 import { ProfileScreen } from './components/screens/ProfileScreen';
 import { RoutinePushReminderModal } from './components/routine/RoutinePushReminderModal';
 import { enrichProduct } from './services/productEnrichmentService';
+import { AuthModal } from './components/auth/AuthModal';
+import { UserProfile } from './types/auth';
+import { GUEST_USER } from './data/mockUsers';
 
 import { 
   BeautyProduct, 
@@ -44,6 +47,7 @@ import {
   ProductStatus,
   ListRating,
   RoutineReminderSettings
+  , MakeupStepDetail
 } from './types/beauty';
 
 import { 
@@ -63,6 +67,18 @@ export default function App() {
   const [isMobilePreview, setIsMobilePreview] = useState(true);
   const [isHighContrast, setIsHighContrast] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_auth_user');
+      if (saved) return JSON.parse(saved) as UserProfile;
+    } catch (e) {}
+    return GUEST_USER;
+  });
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem('vanity_auth_user', JSON.stringify(currentUser)); } catch (e) {}
+  }, [currentUser]);
 
   // Female Physiological Cycle State
   const [cyclePhase, setCyclePhase] = useState<CyclePhase>(() => {
@@ -527,6 +543,23 @@ export default function App() {
       });
       const data = await response.json() as any;
       if (data.success && data.look) {
+        const rawStepDetails: MakeupStepDetail[] = Array.isArray(data.look.step_details)
+          ? data.look.step_details.map((step: any, index: number) => ({
+              id: String(step.id || `step_${index + 1}`),
+              title: String(step.title || step.name || step.step || `第${index + 1}步`),
+              targetArea: step.targetArea || step.target_area || step.region,
+              layerType: step.layerType || step.layer_type,
+              productId: step.productId || step.product_id,
+              productName: step.productName || step.product_name,
+              shade: step.shade || step.shade_name,
+              tool: step.tool,
+              dosage: step.dosage || step.amount,
+              method: Array.isArray(step.method) ? step.method.map(String) : step.detail ? [String(step.detail)] : step.instruction ? [String(step.instruction)] : [],
+              pitfalls: Array.isArray(step.pitfalls) ? step.pitfalls.map(String) : [],
+              checklist: Array.isArray(step.checklist) ? step.checklist.map(String) : [],
+              estimatedMin: Number(step.estimatedMin || step.estimated_min || 2)
+            }))
+          : [];
         const aiSteps = Array.isArray(data.look.steps) ? data.look.steps.map((step: any) => {
           if (typeof step === 'string') return step.trim();
           if (step && typeof step === 'object') return [step.name || step.title || step.step || '', step.detail || step.instruction || step.description || ''].filter(Boolean).join('：');
@@ -542,13 +575,30 @@ export default function App() {
           '修容与高光：只强调鼻梁、面中和下颌需要的结构',
           '唇妆：先勾勒唇形，再少量叠加颜色并检查边缘'
         ];
+        const stepDetails: MakeupStepDetail[] = generatedSteps.map((step: string, index: number) => {
+          const source = rawStepDetails[index];
+          const inferredType = /底妆|妆前|粉底/.test(step) ? 'base' : /眉/.test(step) ? 'brows' : /眼影/.test(step) ? 'eyeshadow' : /眼线/.test(step) ? 'eyeliner' : /睫毛/.test(step) ? 'lashes' : /腮红/.test(step) ? 'blush' : /修容/.test(step) ? 'contour' : /高光/.test(step) ? 'highlight' : /唇|口红/.test(step) ? 'lips' : 'fullLook';
+          const layerType = source?.layerType || inferredType;
+          const targetArea = source?.targetArea || (layerType === 'base' ? '全脸' : layerType === 'brows' ? '眉毛' : layerType === 'eyeshadow' ? '眼周' : layerType === 'eyeliner' ? '眼线' : layerType === 'lashes' ? '睫毛' : layerType === 'blush' ? '颧骨/苹果肌' : layerType === 'contour' ? '鼻梁/下颌' : layerType === 'highlight' ? '鼻梁/面中' : layerType === 'lips' ? '上下唇' : '面部整体');
+          return {
+            ...source,
+            id: source?.id || `step_${index + 1}`,
+            title: source?.title || step.split('：')[0] || step,
+            targetArea,
+            layerType,
+            method: source?.method?.length ? source.method : [step],
+            pitfalls: source?.pitfalls || [],
+            checklist: source?.checklist?.length ? source.checklist : ['确认边缘自然并与左右脸协调'],
+            estimatedMin: source?.estimatedMin || 2
+          };
+        });
         const characterGuidance = params.lookType === 'cos' && params.characterName
           ? `这是${params.characterName}的角色妆造。请严格遵循角色的视觉识别：冷白或角色设定肤色、角色标志性眼妆、眉形、唇色、冷暖色盘和舞台氛围；只改变妆容，不改变用户的脸型、五官比例、发型和背景。若角色是芙宁娜（Furina），使用枫丹舞台感、蓝白冷调、精致上挑眼线、蓝灰眼影、明亮高光和偏玫红唇色，避免普通日常妆。`
           : '';
-        const layerDefinitions = generatedSteps.map((step: string, index: number) => {
-          const type = /底妆|妆前/.test(step) ? 'base' : /眉/.test(step) ? 'brows' : /眼影/.test(step) ? 'eyeshadow' : /眼线/.test(step) ? 'eyeliner' : /睫毛/.test(step) ? 'lashes' : /腮红/.test(step) ? 'blush' : /修容/.test(step) ? 'contour' : /高光/.test(step) ? 'highlight' : /唇/.test(step) ? 'lips' : 'fullLook';
-          const region = type === 'lips' ? '上下唇' : type === 'blush' ? '双侧颧骨/苹果肌' : type === 'eyeshadow' ? '双眼眼窝' : type === 'eyeliner' ? '上下眼线' : type === 'brows' ? '双眉' : type === 'lashes' ? '睫毛' : type === 'contour' ? '鼻梁/下颌' : type === 'highlight' ? '鼻梁/面中' : type === 'base' ? '全脸' : '面部整体';
-          return { id: `layer_${Date.now()}_${index}`, type, region, style: step, opacity: 80, feather: 12, enabled: true, stepIndex: index };
+        const layerDefinitions = stepDetails.map((step, index) => {
+          const type = step.layerType || 'fullLook';
+          const region = step.targetArea || '面部整体';
+          return { id: `layer_${Date.now()}_${index}`, type, region, style: step.title, productId: step.productId, shade: step.shade, opacity: 80, feather: 12, enabled: true, stepIndex: index };
         });
         let renderedImage: string | undefined;
         let renderedLayers: any[] = [];
@@ -560,13 +610,14 @@ export default function App() {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 imageBase64: params.userPhoto,
-                prompt: `妆容类型：${params.lookType}。${characterGuidance}妆容方案：${data.look.description || data.look.title || ''}。步骤：${generatedSteps.join('；')}。${params.referenceImage ? '参考图中的角色妆面是重要视觉依据，请匹配其色盘和眼唇结构。' : ''}请保持人物身份和背景不变，只生成自然贴合面部的妆容效果图。`
+                steps: stepDetails.map(step => ({ title: step.title, targetArea: step.targetArea, layerType: step.layerType })),
+                prompt: `妆容类型：${params.lookType}。${characterGuidance}妆容方案：${data.look.description || data.look.title || ''}。步骤：${generatedSteps.join('；')}。${params.referenceImage ? '参考图中的角色妆面是重要视觉依据，请匹配其色盘和眼唇结构。' : ''}请保持人物身份、脸型、五官比例、发型、姿态和背景不变，只生成贴合真实面部结构的妆容效果图，并保留皮肤纹理。`
               })
             });
             const rendered = await renderResponse.json() as any;
-            if (rendered.success && rendered.imageUrl) { renderedImage = rendered.imageUrl; renderedLayers = Array.isArray(rendered.renderedLayers) ? rendered.renderedLayers : []; renderProvider = rendered.render_provider || 'doubao-seedream'; renderStatus = 'ready'; }
-            else renderStatus = 'failed';
-          } catch { renderStatus = 'failed'; }
+            if (rendered.success && rendered.imageUrl) { renderedImage = rendered.imageUrl; renderedLayers = Array.isArray(rendered.renderedLayers) ? rendered.renderedLayers : []; renderProvider = rendered.render_provider || 'doubao-seedream'; renderStatus = rendered.render_status === 'fallback' ? 'fallback' : 'ready'; }
+            else { renderStatus = rendered.render_status === 'unavailable' ? 'unavailable' : 'failed'; }
+          } catch (error) { console.error('Makeup rendering failed:', error); renderStatus = 'failed'; }
         }
         const newLook: MakeupLook = {
           ...data.look,
@@ -579,6 +630,7 @@ export default function App() {
           render_status: renderStatus,
           rendered_layers: renderedLayers,
           layers: layerDefinitions as any,
+          step_details: stepDetails,
           steps: generatedSteps,
           created_at: new Date().toISOString().split('T')[0]
         };
@@ -615,6 +667,20 @@ export default function App() {
     }
   };
 
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (user.cyclePhase) setCyclePhase(user.cyclePhase);
+    if (user.idolCompanion) {
+      setIdolProfile(prev => ({ ...prev, idolName: user.idolCompanion }));
+    }
+    setShowAuthModal(false);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(GUEST_USER);
+    setShowAuthModal(false);
+  };
+
   return (
     <div className="min-h-screen bg-[#FAF6F3] text-stone-900 flex flex-col font-sans antialiased">
       {/* Top Navigation Bar matching the warm luxury aesthetic */}
@@ -630,6 +696,8 @@ export default function App() {
           setShowAddModal(true);
         }}
         onSpeakGreeting={speakGentleGreeting}
+        currentUser={currentUser}
+        onOpenLogin={() => setShowAuthModal(true)}
       />
 
       {/* Main Content Area */}
@@ -642,6 +710,8 @@ export default function App() {
             <WeChatFrame
               currentTab={activeTab === 'api' ? 'home' : activeTab}
               onTabChange={setActiveTab}
+              currentUser={currentUser}
+              onOpenLogin={() => setShowAuthModal(true)}
             >
               {activeTab === 'home' && (
                 <HomeScreen
@@ -656,6 +726,8 @@ export default function App() {
                   }}
                   reminderSettings={reminderSettings}
                   products={products}
+                  currentUser={currentUser}
+                  onOpenLogin={() => setShowAuthModal(true)}
                 />
               )}
 
@@ -731,6 +803,9 @@ export default function App() {
                   onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
                   onExportData={handleExportData}
                   onShowPrivacyModal={() => setShowPrivacyPolicyModal(true)}
+                  currentUser={currentUser}
+                  onOpenLogin={() => setShowAuthModal(true)}
+                  onLogout={handleLogout}
                 />
               )}
               {activeTab === 'api' && <ApiIntegrationPanel />}
@@ -752,6 +827,8 @@ export default function App() {
                 }}
                 reminderSettings={reminderSettings}
                 products={products}
+                currentUser={currentUser}
+                onOpenLogin={() => setShowAuthModal(true)}
               />
             )}
 
@@ -827,6 +904,9 @@ export default function App() {
                 onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
                 onExportData={handleExportData}
                 onShowPrivacyModal={() => setShowPrivacyPolicyModal(true)}
+                currentUser={currentUser}
+                onOpenLogin={() => setShowAuthModal(true)}
+                onLogout={handleLogout}
               />
             )}
             {activeTab === 'api' && <ApiIntegrationPanel />}
@@ -955,6 +1035,13 @@ export default function App() {
           setActiveTab('routine');
         }}
         products={products}
+      />
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onLoginSuccess={handleLoginSuccess}
+        currentUser={currentUser}
       />
     </div>
   );

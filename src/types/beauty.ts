@@ -68,6 +68,7 @@ export interface BeautyProduct {
   ingredient_analysis?: {
     benefits?: string[];
     cautions?: string[];
+    review_summary?: string;
     evidence?: string;
     confidence?: number;
   };
@@ -150,7 +151,7 @@ export interface MakeupLook {
   reference_image?: string;
   generated_image?: string;
   render_provider?: 'doubao-seedream' | 'tencent-effect' | 'local' | 'unavailable';
-  render_status?: 'pending' | 'ready' | 'failed' | 'unavailable';
+  render_status?: 'pending' | 'ready' | 'failed' | 'unavailable' | 'fallback';
   rendered_layers?: GeneratedMakeupLayer[];
   description: string;
   occasion: string;
@@ -163,10 +164,28 @@ export interface MakeupLook {
     note: string;
   }[];
   steps: string[];
+  /** Structured instructions returned by the AI so follow-along can stay in sync with the generated look. */
+  step_details?: MakeupStepDetail[];
   lighting_advice?: string;
   minimal_5min_tip: string;
   created_at: string;
   layers?: MakeupLayer[];
+}
+
+export interface MakeupStepDetail {
+  id?: string;
+  title: string;
+  targetArea?: string;
+  layerType?: MakeupLayerType;
+  productId?: string;
+  productName?: string;
+  shade?: string;
+  tool?: string;
+  dosage?: string;
+  method?: string[];
+  pitfalls?: string[];
+  checklist?: string[];
+  estimatedMin?: number;
 }
 
 export interface GeneratedMakeupLayer {

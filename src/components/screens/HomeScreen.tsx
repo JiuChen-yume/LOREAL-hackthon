@@ -34,6 +34,7 @@ import {
   circularBottleEcoImg 
 } from '../../data/mockData';
 import { RoutineReminderSettings, BeautyProduct } from '../../types/beauty';
+import { UserProfile } from '../../types/auth';
 
 interface HomeScreenProps {
   onNavigate: (tab: 'home' | 'vanity' | 'routine' | 'makeup' | 'memory' | 'mall' | 'circular') => void;
@@ -41,6 +42,8 @@ interface HomeScreenProps {
   onOpenRoutineReminder?: (type: 'morning' | 'evening') => void;
   reminderSettings?: RoutineReminderSettings;
   products?: BeautyProduct[];
+  currentUser?: UserProfile | null;
+  onOpenLogin?: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -48,7 +51,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenAddModal,
   onOpenRoutineReminder,
   reminderSettings,
-  products = []
+  products = [],
+  currentUser,
+  onOpenLogin
 }) => {
   const expiringCount = products.filter(p => p.status === 'expiring_soon').length || 2;
   const totalProductCount = products.length || 12;
@@ -102,13 +107,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userPhotoBase64: photoToUse,
+          imageBase64: photoToUse,
           style: avatarStyle
         })
       });
       const data: any = await response.json();
-      if (data.success && data.avatarUrl) {
-        setGeneratedAvatarPreview(data.avatarUrl);
+      if (data.success && data.imageUrl) {
+        setGeneratedAvatarPreview(data.imageUrl);
         showToast('卡通虚拟形象生成成功！点击应用即可生效');
       } else {
         showToast('生成失败，请重试');
@@ -233,13 +238,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <div className="relative z-10 max-w-[210px] space-y-2">
           <div className="flex items-center gap-1.5">
             <h2 className="text-xl sm:text-2xl font-bold font-serif text-stone-900 tracking-tight">
-              早上好，
+              早上好，{currentUser?.nickname || '晚晚'}
             </h2>
             <span className="text-amber-500 text-xl">🔆</span>
           </div>
           <p className="text-xs text-stone-600 font-medium leading-relaxed">
             今天想让自己轻松一点，<br />还是精致一点？
           </p>
+          {currentUser?.isGuest && (
+            <button type="button" onClick={onOpenLogin} className="rounded-full border border-[#E5C9BE] bg-white/75 px-3 py-1 text-[10px] text-[#962F43] hover:bg-white">
+              登录后开启云端备份与专属定制
+            </button>
+          )}
 
           {/* Weather & UV Info - Clickable for details */}
           <div 
@@ -479,7 +489,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <Palette className="w-5 h-5 stroke-[2]" />
           </div>
           <span className="text-xs font-bold text-stone-900">妆造工作室</span>
-          <span className="text-[9px] text-stone-400 mt-0.5">AI ??? &gt;</span>
+          <span className="text-[9px] text-stone-400 mt-0.5">AI 试妆工作台 &gt;</span>
         </button>
 
         <button

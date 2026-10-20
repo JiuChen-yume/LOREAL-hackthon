@@ -40,6 +40,8 @@ export type BeautyCategory =
 
 interface Image4BeautyEditorProps {
   userPhotoUrl: string;
+  /** Optional Seedream result. It is shown as the actual AI preview while the original remains the WebAR input. */
+  generatedImage?: string;
   onClose: () => void;
   products: BeautyProduct[];
   onSaveLook?: (lookTitle: string, rating: 'red' | 'yellow' | 'black') => void;
@@ -49,6 +51,7 @@ interface Image4BeautyEditorProps {
 
 export const Image4BeautyEditor: React.FC<Image4BeautyEditorProps> = ({
   userPhotoUrl: initialPhoto,
+  generatedImage,
   onClose,
   products,
   onSaveLook,
@@ -477,6 +480,19 @@ export const Image4BeautyEditor: React.FC<Image4BeautyEditorProps> = ({
           style={{ clipPath: viewMode === 'split' ? `polygon(${splitPos}% 0, 100% 0, 100% 100%, ${splitPos}% 100%)` : undefined }}
           className={`absolute inset-0 z-10 w-full h-full object-contain bg-black ${localLipStatus === 'ready' || webarStatus === 'ready' ? 'block' : 'hidden'}`}
         />
+        {generatedImage && (
+          <img
+            src={generatedImage}
+            alt="Seedream 生成妆效预览"
+            className="absolute inset-0 z-[15] w-full h-full object-contain pointer-events-none"
+            style={{ clipPath: viewMode === 'split' ? `polygon(${splitPos}% 0, 100% 0, 100% 100%, ${splitPos}% 100%)` : undefined }}
+          />
+        )}
+        {generatedImage && (
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 rounded-full bg-rose-950/75 border border-rose-300/50 px-3 py-1 text-[11px] text-rose-100 backdrop-blur-md">
+            Seedream AI 妆效图 · 已保留原图对比
+          </div>
+        )}
         {localLipStatus === 'ready' && !activeTencentEffectId ? (
           <div className="absolute inset-0 z-20 pointer-events-none">
             <div className="absolute top-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 border border-cyan-400/50 px-3 py-1 text-[11px] text-cyan-200 backdrop-blur-md">

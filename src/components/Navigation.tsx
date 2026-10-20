@@ -11,8 +11,10 @@ import {
   Eye,
   Volume2,
   Camera,
-  PlugZap
+  PlugZap,
+  User
 } from 'lucide-react';
+import { UserProfile } from '../types/auth';
 
 export type ActiveTab = 'home' | 'vanity' | 'routine' | 'makeup' | 'memory' | 'mall' | 'circular' | 'api';
 
@@ -25,6 +27,8 @@ interface NavigationProps {
   onToggleHighContrast: () => void;
   onQuickAddProduct: () => void;
   onSpeakGreeting?: () => void;
+  currentUser?: UserProfile | null;
+  onOpenLogin?: () => void;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -35,7 +39,9 @@ export const Navigation: React.FC<NavigationProps> = ({
   isHighContrast,
   onToggleHighContrast,
   onQuickAddProduct,
-  onSpeakGreeting
+  onSpeakGreeting,
+  currentUser,
+  onOpenLogin
 }) => {
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: '首页', icon: <Sparkles className="w-3.5 h-3.5" /> },
@@ -93,6 +99,15 @@ export const Navigation: React.FC<NavigationProps> = ({
 
         {/* Zone 3: Actions & Quick Utilities */}
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            className="hidden sm:flex items-center gap-1.5 rounded-full border border-[#E5D9D0] bg-white/80 px-2.5 py-1.5 text-[11px] text-stone-700 hover:bg-white"
+            title={currentUser?.isGuest ? '登录或注册' : '账号中心'}
+          >
+            {currentUser?.avatar ? <img src={currentUser.avatar} alt="" className="w-5 h-5 rounded-full object-cover" /> : <User className="w-3.5 h-3.5" />}
+            <span>{currentUser?.isGuest ? '登录 / 注册' : (currentUser?.nickname || '账号')}</span>
+          </button>
           {/* Audio voice greeting */}
           {onSpeakGreeting && (
             <button
