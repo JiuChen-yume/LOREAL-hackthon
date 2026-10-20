@@ -34,7 +34,7 @@ export const IdleRescueModal: React.FC<IdleRescueModalProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ product })
         });
-        const data = await response.json() as any;
+        const data: any = await response.json();
         if (data.success && data.suggestions) {
           setSuggestions(data.suggestions);
         } else if (product.repurpose_ideas) {

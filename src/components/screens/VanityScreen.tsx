@@ -30,6 +30,7 @@ interface VanityScreenProps {
   onSelectProductForDetail: (product: BeautyProduct) => void;
   onOpenCompatibility: (products: BeautyProduct[]) => void;
   onAddToTodayPlan?: (product: BeautyProduct) => void;
+  onRetryProductEnrichment?: (product: BeautyProduct) => void;
 }
 
 export const VanityScreen: React.FC<VanityScreenProps> = ({
@@ -351,12 +352,12 @@ export const VanityScreen: React.FC<VanityScreenProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     if (onAddToTodayPlan) onAddToTodayPlan(item.rawProduct);
-                    showToast(`已将「${item.product_name}」加入今日护理计划`);
+                    showToast(`已将「${item.product_name}」加入今日计划！护肤流程已同步 ✓`);
                   }}
                   className="py-1 px-1 rounded-full bg-[#E25C70] hover:bg-[#d64e62] text-white text-[10px] font-semibold flex items-center justify-center gap-0.5 shadow-2xs transition-colors"
                 >
                   <Calendar className="w-3 h-3" />
-                  <span>排入流程</span>
+                  <span>加入今日计划</span>
                 </button>
               </div>
             </div>

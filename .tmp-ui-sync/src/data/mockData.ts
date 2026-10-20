@@ -1,0 +1,652 @@
+import { BeautyProduct, RoutinePlan, MakeupLook, MallItem, CircularRecycleRecord, BlacklistIngredient } from '../types/beauty';
+
+import vanityHero from '../assets/images/vanity_hero_showcase_1792080326105.jpg';
+import skincareCalm from '../assets/images/skincare_routine_calm_1792080328109.jpg';
+import makeupLookImg from '../assets/images/makeup_studio_look_1792080328399.jpg';
+import circularRecycleImg from '../assets/images/beauty_circular_recycle_1792080329011.jpg';
+import homePortraitImg from '../assets/images/home_beauty_portrait_1792151309450.jpg';
+import makeupGlamourImg from '../assets/images/makeup_model_glamour_1792151327511.jpg';
+import circularBottleEcoImg from '../assets/images/circular_bottle_eco_1792151344680.jpg';
+
+export { 
+  vanityHero, 
+  skincareCalm, 
+  makeupLookImg, 
+  circularRecycleImg, 
+  makeupLookImg as makeupLook, 
+  circularRecycleImg as beautyRecycle,
+  homePortraitImg,
+  makeupGlamourImg,
+  circularBottleEcoImg
+};
+
+export const INITIAL_PRODUCTS: BeautyProduct[] = [
+  {
+    id: 'prod_1',
+    brand: '巴黎欧莱雅 (L\'Oréal Paris)',
+    product_name: '第二代黑精华肌底液 (注光小黑瓶)',
+    category: 'skincare',
+    subcategory: '精华',
+    size: '50ml',
+    purchase_date: '2026-03-10',
+    opened_date: '2026-04-01',
+    pao_months: 12,
+    expiry_date: '2027-04-01',
+    quantity: 2, // 2 bottles in stock!
+    status: 'in_use',
+    ingredients: ['二裂酵母发酵产物溶胞物', '木瓜蛋白酶', '腺苷', '水杨酰植物鞘氨醇', '透明质酸钠'],
+    allergen_tags: ['微量水杨酸衍生物'],
+    user_notes: '日常维稳肌底液，吸收很快，晨晚间均适合。',
+    shelf_location: '梳妆台一阶·核心精华区',
+    list_status: 'red',
+    last_used_at: '2026-10-14',
+    usage_count: 68,
+    price: 369,
+    repurpose_ideas: ['如果临期可与身体乳按1:2调配涂抹手肘膝盖', '上妆卡粉时滴1滴在粉底液中混匀']
+  },
+  {
+    id: 'prod_cleanser',
+    brand: '芙丽芳丝 (Freeplus)',
+    product_name: '净润洗面霜 (氨基酸洁面 100g)',
+    category: 'skincare',
+    subcategory: '洁面',
+    size: '100g',
+    purchase_date: '2026-06-15',
+    opened_date: '2026-06-20',
+    pao_months: 6,
+    expiry_date: '2026-12-20',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['椰油酰甘氨酸钾', '烟酰胺', '光果甘草根提取物', '枣果提取物'],
+    allergen_tags: [],
+    user_notes: '每日早晚消耗，已见底仅剩约10%余量。高频消耗品补货预警！',
+    shelf_location: '洗漱台·日常区',
+    list_status: 'red',
+    last_used_at: '2026-10-15',
+    usage_count: 110,
+    price: 150,
+    repurpose_ideas: ['剪开软管洗刷具与美妆蛋']
+  },
+  {
+    id: 'prod_2',
+    brand: '理肤泉 (La Roche-Posay)',
+    product_name: 'B5 多效保湿修复霜 (白管厚敷版)',
+    category: 'skincare',
+    subcategory: '面霜',
+    size: '40ml',
+    purchase_date: '2026-01-15',
+    opened_date: '2026-02-01',
+    pao_months: 6,
+    expiry_date: '2026-11-15', // Expiring soon!
+    quantity: 1,
+    status: 'expiring_soon',
+    ingredients: ['泛醇(维生素B5 5%)', '积雪草苷', '乳木果油', '葡糖酸锌', '微量二氧化钛'],
+    allergen_tags: [],
+    user_notes: '泛红发痒时的救命稻草，需要乳化后再按压上脸。',
+    shelf_location: '急救小药箱层',
+    list_status: 'red',
+    last_used_at: '2026-10-12',
+    usage_count: 42,
+    price: 135,
+    repurpose_ideas: ['质地厚重适合秋冬涂抹颈纹和手肘干裂处', '甲缘干燥脱皮时做指缘油包裹护理']
+  },
+  {
+    id: 'prod_3',
+    brand: '露得清 (Neutrogena)',
+    product_name: 'A醇抗皱修护晚霜 (0.1% 纯视黄醇)',
+    category: 'skincare',
+    subcategory: '面霜',
+    size: '29ml',
+    purchase_date: '2026-05-20',
+    opened_date: '2026-06-01',
+    pao_months: 6,
+    expiry_date: '2026-12-01',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['视黄醇(Retinol)', '抗坏血酸(维生素C)', '水解香桃木叶提取物', '透明质酸钠'],
+    allergen_tags: ['A醇(视黄醇)'],
+    user_notes: '仅限晚间使用，必须避开果酸和水杨酸，孕妇慎用。',
+    shelf_location: '避光抽屉·活性成分区',
+    list_status: 'yellow',
+    last_used_at: '2026-10-13',
+    usage_count: 24,
+    price: 189,
+    repurpose_ideas: ['颈部皮肤耐受良好可薄涂淡化颈纹', '手背睡前抗老涂抹']
+  },
+  {
+    id: 'prod_4',
+    brand: '修丽可 (SkinCeuticals)',
+    product_name: '果酸焕活修护精华 (10%复合高浓度酸)',
+    category: 'skincare',
+    subcategory: '精华',
+    size: '30ml',
+    purchase_date: '2026-04-10',
+    opened_date: '2026-05-01',
+    pao_months: 12,
+    expiry_date: '2027-05-01',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['二酸', '乙醇酸(甘醇酸 3.5%)', '水杨酸 1.5%', '柠檬酸', '柠檬酸钠'],
+    allergen_tags: ['高浓度果酸', '水杨酸', '高刺激性'],
+    user_notes: '疏通闭口很强，但和A醇绝对不能同晚用，易造成屏障破损泛红。',
+    shelf_location: '避光抽屉·酸类区',
+    list_status: 'yellow',
+    last_used_at: '2026-10-09',
+    usage_count: 14,
+    price: 820,
+    repurpose_ideas: ['后背闭口痘痘局部点涂', '身体角质粗糙处稀释使用']
+  },
+  {
+    id: 'prod_5',
+    brand: '修丽可 (SkinCeuticals)',
+    product_name: '植萃舒缓修护精华 (绿宝瓶色修)',
+    category: 'skincare',
+    subcategory: '精华',
+    size: '30ml',
+    purchase_date: '2026-02-18',
+    opened_date: '2026-03-01',
+    pao_months: 12,
+    expiry_date: '2027-03-01',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['油橄榄叶提取物', '迷迭香叶提取物', '黄瓜果提取物', '透明质酸钠', '桑根提取物'],
+    allergen_tags: [],
+    user_notes: '退红褪印第一名，无油配方，晨晚清爽舒适。',
+    shelf_location: '梳妆台一阶·舒缓区',
+    list_status: 'red',
+    last_used_at: '2026-10-15',
+    usage_count: 75,
+    price: 640,
+    repurpose_ideas: ['晒后脸颊热烫时冷藏后局部湿敷']
+  },
+  {
+    id: 'prod_6',
+    brand: '芭比波朗 (Bobbi Brown)',
+    product_name: '维他命妆前柔润底霜 (橘子面霜)',
+    category: 'base',
+    subcategory: '妆前乳',
+    size: '50ml',
+    purchase_date: '2025-11-20',
+    opened_date: '2025-12-05',
+    pao_months: 12,
+    expiry_date: '2026-12-05',
+    quantity: 1,
+    status: 'idle',
+    ingredients: ['牛油果树果脂', '胡萝卜根提取物', '维生素C', '维生素E', '葡萄柚果皮油'],
+    allergen_tags: ['柑橘类植物精油'],
+    user_notes: '夏末容易感觉厚重因此闲置了2个月，但秋冬打底滋润度极佳。',
+    shelf_location: '二阶·闲置妆前盒',
+    list_status: 'none',
+    last_used_at: '2026-08-15',
+    usage_count: 18,
+    price: 620,
+    repurpose_ideas: [
+      '秋冬手肘膝盖干燥时做奢华深层润肤霜',
+      '上哑光粉底前在鼻翼法令纹局部薄揉打底防卡粉',
+      '作为免洗护甲霜按摩干燥指缘'
+    ]
+  },
+  {
+    id: 'prod_7',
+    brand: '兰蔻 (Lancôme)',
+    product_name: '菁纯臻颜精华粉底液 #100-PO',
+    category: 'base',
+    subcategory: '粉底液',
+    shade_name: '100-PO 粉白调',
+    shade_hex: '#f5e4d7',
+    size: '35ml',
+    purchase_date: '2026-06-18',
+    opened_date: '2026-06-25',
+    pao_months: 12,
+    expiry_date: '2027-06-25',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['大马士革玫瑰精油', '玻色因(羟丙基四氢吡喃三醇)', '生育酚', '二氧化钛'],
+    allergen_tags: [],
+    user_notes: '养肤滋润光泽妆效，秋冬干皮最爱，持妆一整天不暗沉。',
+    shelf_location: '底妆旋转盘中央',
+    list_status: 'red',
+    last_used_at: '2026-10-14',
+    usage_count: 53,
+    price: 1100,
+    repurpose_ideas: ['色号如稍白，可与深色隔离按比例调和作为修容轮廓色']
+  },
+  {
+    id: 'prod_8',
+    brand: '3CE (Stylenanda)',
+    product_name: '九宫格眼影盘 #OVERTAKE (经典橘棕)',
+    category: 'eye',
+    subcategory: '眼影',
+    shade_name: 'Overtake 暖橘棕金',
+    shade_hex: '#a3583b',
+    color_tone: 'warm',
+    purchase_date: '2025-08-10',
+    opened_date: '2025-08-20',
+    pao_months: 24,
+    expiry_date: '2027-08-20',
+    quantity: 1,
+    status: 'idle',
+    ingredients: ['滑石粉', '云母', '二氧化钛', '氧化铁类'],
+    allergen_tags: [],
+    user_notes: '买来只用了中间两块浅色，右上深深棕色几乎没动过。录入超过60天未调用，已标记长期闲置。',
+    shelf_location: '彩妆第二层抽屉',
+    list_status: 'none',
+    last_used_at: '2026-07-22',
+    usage_count: 22,
+    price: 245,
+    repurpose_ideas: [
+      '闲置右下最深冷棕色：用斜角刷沾水化身极细持妆眼线胶',
+      '哑光深棕色：混合眉粉填补发际线与额角空缺',
+      '第一排中色：大号蓬松刷轻扫鼻影与面部轮廓修容'
+    ]
+  },
+  {
+    id: 'prod_dior_cool',
+    brand: '迪奥 (DIOR)',
+    product_name: '后台彩妆九色眼影盘 #002 (冷调烟熏粉紫)',
+    category: 'eye',
+    subcategory: '眼影',
+    shade_name: '#002 冰川烟粉冷棕',
+    shade_hex: '#8b6b7b',
+    color_tone: 'cool',
+    purchase_date: '2026-04-12',
+    opened_date: '2026-04-20',
+    pao_months: 24,
+    expiry_date: '2028-04-20',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['云母', '滑石粉', '聚二甲基硅氧烷', '着色剂'],
+    allergen_tags: [],
+    user_notes: '消肿极佳的冷调灰紫粉，适合冷皮或伪素颜白开水消肿妆。',
+    shelf_location: '彩妆第二层抽屉·冷色区',
+    list_status: 'red',
+    last_used_at: '2026-10-11',
+    usage_count: 31,
+    price: 490,
+    repurpose_ideas: ['浅冷粉色作为卧蚕提亮', '中灰粉大面积眼窝消肿']
+  },
+  {
+    id: 'prod_9',
+    brand: '植村秀 (Shu Uemura)',
+    product_name: '无色限绢感唇膏 (小黑方口红 #BR784)',
+    category: 'lip',
+    subcategory: '口红',
+    shade_name: 'BR784 赤狐红棕',
+    shade_hex: '#8d2d2a',
+    color_tone: 'warm',
+    size: '3.3g',
+    purchase_date: '2026-01-08',
+    opened_date: '2026-01-15',
+    pao_months: 18,
+    expiry_date: '2027-07-15',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['山茶花籽精油', '双-二甘油多酰基己二酸酯-2', '着色剂'],
+    allergen_tags: [],
+    user_notes: '浓郁丝缎红棕，显白有气场，薄涂日常，厚涂高级。',
+    shelf_location: '口红立式收纳架 #01',
+    list_status: 'red',
+    last_used_at: '2026-10-14',
+    usage_count: 48,
+    price: 330,
+    repurpose_ideas: [
+      '用指腹轻点于苹果肌向太阳穴晕染，化身质感极高的同色系微醺膏状腮红',
+      '用唇刷调和无色润唇膏，自制果冻透润红茶唇冻'
+    ]
+  },
+  {
+    id: 'prod_10',
+    brand: '珂润 (Curel)',
+    product_name: '润浸保湿滋养乳霜 (神经酰胺面霜)',
+    category: 'skincare',
+    subcategory: '面霜',
+    size: '40g',
+    purchase_date: '2026-05-10',
+    opened_date: '2026-05-15',
+    pao_months: 12,
+    expiry_date: '2027-05-15',
+    quantity: 1,
+    status: 'in_use',
+    ingredients: ['鲸蜡基-PG羟乙基棕榈酰胺(拟神经酰胺)', '尿囊素', '角鲨烷', '蓝桉叶提取物'],
+    allergen_tags: [],
+    user_notes: '干敏皮换季安心锁水面霜，成分极简无负担。',
+    shelf_location: '梳妆台一阶·晨间保湿',
+    list_status: 'red',
+    last_used_at: '2026-10-15',
+    usage_count: 59,
+    price: 188,
+    repurpose_ideas: ['上妆前针对脱皮起皮部位厚敷5分钟擦掉']
+  },
+  {
+    id: 'prod_11',
+    brand: '某海外代购 (Revital Tonic)',
+    product_name: '高浓度高醇清爽收敛水 (示范黑榜)',
+    category: 'skincare',
+    subcategory: '化妆水',
+    size: '150ml',
+    purchase_date: '2026-07-01',
+    opened_date: '2026-07-05',
+    pao_months: 12,
+    expiry_date: '2027-07-05',
+    quantity: 1,
+    status: 'idle',
+    ingredients: ['变性乙醇(酒精 >30%)', '薄荷醇', '人工合成香精', '金缕梅提取物'],
+    allergen_tags: ['高浓度酒精', '强薄荷刺激', '致敏香精'],
+    user_notes: '使用后两颊立刻刺痛发烫泛红！已列入黑榜，系统已禁止排入护理计划。',
+    shelf_location: '黑榜隔离盒·待回收',
+    list_status: 'black',
+    last_used_at: '2026-07-08',
+    usage_count: 2,
+    price: 160,
+    repurpose_ideas: ['不可用于面部！可作为化妆刷具或粉扑金属柄清洁消毒剂', '擦拭镜面与梳妆台台面去指纹']
+  }
+];
+
+export const INITIAL_BLACKLIST: BlacklistIngredient[] = [
+  {
+    name: '变性乙醇 (高浓度酒精)',
+    risk_level: 'high',
+    reason: '多次使用后两颊泛红刺痛，加剧屏障受损与经皮失水。',
+    associated_products_count: 1
+  },
+  {
+    name: '人工合成强香精 (Synthetic Fragrance)',
+    risk_level: 'medium',
+    reason: '容易诱发敏感肌接触性皮炎及眼周瘙痒。',
+    associated_products_count: 1
+  },
+  {
+    name: '甲基异噻唑啉酮 (MIT防腐剂)',
+    risk_level: 'high',
+    reason: '强致敏防腐剂，已被多国化妆品法规严格限制。',
+    associated_products_count: 0
+  }
+];
+
+export const INITIAL_ROUTINE_PLAN: RoutinePlan = {
+  id: 'plan_today',
+  title: '今日屏障舒缓与清透日常 Routine',
+  mode: 'routine',
+  time_budget: '5min',
+  only_vanity: true,
+  skin_status_summary: '今日皮肤状态偏干，局部有微弱泛红倾向；气温 21°C，紫外线指数中等 (UV 4)。建议注重神经酰胺温和维稳，低负担底妆。',
+  morning_steps: [
+    {
+      step_number: 1,
+      category: '肌底调理',
+      title: '温和打底激活',
+      product_id: 'prod_1',
+      brand: '巴黎欧莱雅',
+      product_name: '第二代黑精华肌底液',
+      dosage: '1满滴管 (约0.8ml)',
+      wait_time: '掌心温热按压 40秒',
+      instruction: '用掌心温度轻柔按压面部至完全吸收，调理角质屏障吸收通道。',
+      notes: '避免用力摩擦两颊微红区域。'
+    },
+    {
+      step_number: 2,
+      category: '核心舒缓',
+      title: '退红褪敏强化',
+      product_id: 'prod_5',
+      brand: '修丽可',
+      product_name: '植萃舒缓修护精华 (色修)',
+      dosage: '4-5滴',
+      wait_time: '轻拍吸收 1分钟',
+      instruction: '点涂于鼻翼、两颊苹果肌泛红敏感部位，清爽修护。',
+      notes: '植萃清凉感舒缓紧绷。'
+    },
+    {
+      step_number: 3,
+      category: '锁水防护',
+      title: '屏障锁水防护',
+      product_id: 'prod_10',
+      brand: '珂润',
+      product_name: '润浸保湿滋养乳霜',
+      dosage: '黄豆粒大小',
+      wait_time: '按压吸收 1分钟',
+      instruction: '在两颊与下颌干燥区域薄薄覆盖，拟神经酰胺长效锁住水分。',
+      notes: '为后续上底妆提供平整无干纹的基地。'
+    }
+  ],
+  evening_steps: [
+    {
+      step_number: 1,
+      category: '夜间修护',
+      title: '细胞微生态修护',
+      product_id: 'prod_1',
+      brand: '巴黎欧莱雅',
+      product_name: '第二代黑精华肌底液',
+      dosage: '1.5滴管',
+      wait_time: '按摩 1分钟',
+      instruction: '夜间二裂酵母帮助加速日间紫外线带来的微损伤修护。'
+    },
+    {
+      step_number: 2,
+      category: '深度封层',
+      title: 'B5 舒缓厚敷修复',
+      product_id: 'prod_2',
+      brand: '理肤泉',
+      product_name: 'B5 多效保湿修复霜',
+      dosage: '花生米大小',
+      wait_time: '乳化后按压',
+      instruction: '双手手心合十加温乳化成半透明油膜状后，轻柔按压贴在双颊敏感干燥处。',
+      notes: '注意：此产品还有1个月到期，请优先消耗！'
+    }
+  ],
+  created_at: '2026-10-15T08:00:00Z'
+};
+
+export const INITIAL_MAKEUP_LOOKS: MakeupLook[] = [
+  {
+    id: 'look_1',
+    title: '晨曦微光氧气通勤妆',
+    type: 'daily',
+    description: '充分利用化妆台现有高光菁纯粉底与绢感红棕口红，打造透气、低粉感的健康伪素颜好气色。',
+    occasion: '日常通勤 / 周末约会 / 轻松会议',
+    matched_products: [
+      {
+        slot: '底妆',
+        product_id: 'prod_7',
+        product_name: '兰蔻 菁纯臻颜粉底液 #100-PO',
+        shade: '#100-PO',
+        note: '按压半泵，用湿润海绵蛋自面中向外轻拍延展'
+      },
+      {
+        slot: '眼影',
+        product_id: 'prod_8',
+        product_name: '3CE 九宫格 #OVERTAKE (中色打底)',
+        shade: '暖橘奶茶',
+        note: '使用第二排中浅色大面积铺在眼窝，消肿提神'
+      },
+      {
+        slot: '腮红',
+        product_id: 'prod_9',
+        product_name: '植村秀口红 #BR784 (闲置拯救用法)',
+        shade: '#BR784 赤狐红棕',
+        note: '指腹轻沾唇膏，在手背揉散后，轻点于两颊苹果肌并向上轻拍'
+      },
+      {
+        slot: '唇妆',
+        product_id: 'prod_9',
+        product_name: '植村秀口红 #BR784 (日常薄涂)',
+        shade: '#BR784 赤狐红棕',
+        note: '点涂唇中向外抿开，形成自然的红润渐变咬唇'
+      }
+    ],
+    steps: [
+      '用湿海绵蘸取半泵兰蔻菁纯粉底，由内向外薄薄拍开，保留皮肤原有通透光泽。',
+      '用 3CE 眼影盘浅米棕色扫匀上下眼皮，消退水肿感。',
+      '用小黑方口红指腹余温点压在苹果肌，自制天然血色感微醺腮红。',
+      '唇部薄涂润唇膏后点涂口红内侧轻抿，完成清透低负担妆容。'
+    ],
+    minimal_5min_tip: '5分钟版本：跳过眼影，仅用半泵粉底遮瑕局部，口红一物两用（唇+腮红），瞬间提亮气色。',
+    created_at: '2026-10-14'
+  },
+  {
+    id: 'look_2',
+    title: '仿妆：法式复古松弛感猫系红唇',
+    type: 'imitation',
+    inspiration_image: makeupLookImg,
+    description: '参考巴黎时装周秀场后台，强调柔润无瑕原生底妆与立体哑光红唇，眼妆仅保留微翘眼线。',
+    occasion: '晚宴 / 艺术展览 / 摄影写真',
+    matched_products: [
+      {
+        slot: '底妆',
+        product_id: 'prod_7',
+        product_name: '兰蔻 菁纯粉底液',
+        note: '面中高光提亮'
+      },
+      {
+        slot: '修容/眉笔',
+        product_id: 'prod_8',
+        product_name: '3CE 九宫格深棕 (拯救技法：斜角刷湿画)',
+        note: '极细斜角刷微湿拉出眼尾精致微挑眼线'
+      },
+      {
+        slot: '唇妆',
+        product_id: 'prod_9',
+        product_name: '植村秀小黑方 #BR784 勾勒厚涂',
+        note: '唇峰清晰，丝缎高级质感'
+      }
+    ],
+    steps: [
+      '利用橘子面霜局部平整鼻翼肌理，再上菁纯粉底。',
+      '眼部无需复杂渐变，用眼影盘最深冷棕湿画一条流畅眼尾拉长线。',
+      '用唇刷精准勾勒唇峰边缘，满涂红棕唇膏，打造法式优雅自信气场。'
+    ],
+    minimal_5min_tip: '简化版：用砍刀眉笔直接带过眼尾与眉毛，厚涂红唇即刻成妆。',
+    created_at: '2026-10-10'
+  },
+  {
+    id: 'look_3',
+    title: 'COS 妆造：精灵旅社 / 赛博机械姬风格转换',
+    type: 'cos',
+    character_name: '赛博机械精灵 (Cyber Elf)',
+    description: '通过五官高光立体打亮与深色线条勾勒，适应舞台强灯光和长时间漫展拍摄，防卡粉防脱妆。',
+    occasion: '漫展 / 舞台走秀 / 角色扮演摄影',
+    matched_products: [
+      {
+        slot: '底妆',
+        product_id: 'prod_7',
+        product_name: '兰蔻 菁纯粉底液 + 定妆烘焙',
+        note: '舞台长效持妆建议配合散粉局部定妆'
+      },
+      {
+        slot: '眼影',
+        product_id: 'prod_8',
+        product_name: '3CE #OVERTAKE 倒置眼影截断',
+        note: '深色下眼睑晕染出动漫感眼裂下至'
+      }
+    ],
+    steps: [
+      '用修丽科色修提前舒缓面部受损，避免长时间假睫毛胶水过敏。',
+      '底妆采用分区分层定妆法，鼻翼和额头高光点提亮。',
+      '眼尾画出动漫角色标志性眼下截断，并在眼头做内眼角开眼头修饰。',
+      '舞台强光下腮红显色度降低，可将口红加深一层点涂。'
+    ],
+    lighting_advice: '漫展冷白爆闪灯光下容易吃色，眼尾下至和唇峰高光需比日常重30%，假睫毛选择透明梗以减少眼睑负担。',
+    minimal_5min_tip: '快速版：强化下眼睑眼影与唇色对比度，配戴精灵耳即可出片。',
+    created_at: '2026-10-05'
+  }
+];
+
+export const INITIAL_MALL_ITEMS: MallItem[] = [
+  {
+    id: 'mall_1',
+    brand: '理肤泉 (La Roche-Posay)',
+    name: 'B5 多效保湿修复霜 (同款环保替换芯/补货装)',
+    category: 'skincare',
+    subcategory: '面霜',
+    price: 119,
+    is_commercial: false,
+    recommend_reason: '【临近用完提醒】你化妆台里的理肤泉B5修复霜仅剩1个月开封效期且余量偏低，为你推荐同款环保替换装，避免断档。',
+    existing_vanity_count: 1,
+    existing_vanity_names: ['理肤泉 B5 多效保湿修复霜'],
+    contains_blacklist_ingredient: false,
+    blacklist_ingredient_names: [],
+    refill_available: true
+  },
+  {
+    id: 'mall_2',
+    brand: '理肤泉 (La Roche-Posay)',
+    name: '三酸焕肤微酸收敛水 200ml (商业合作品牌)',
+    category: 'skincare',
+    subcategory: '化妆水',
+    price: 198,
+    is_commercial: true,
+    commercial_tag: '品牌商业推广',
+    recommend_reason: '商业合作推广单品。系统特别安全拦截：此产品含酒精成分，可能诱发刺痛！',
+    existing_vanity_count: 0,
+    existing_vanity_names: [],
+    contains_blacklist_ingredient: true,
+    blacklist_ingredient_names: ['变性乙醇 (高浓度酒精)'],
+    refill_available: false
+  },
+  {
+    id: 'mall_3',
+    brand: '雅漾 (Avene)',
+    name: '舒泉调理保湿喷雾 300ml',
+    category: 'skincare',
+    subcategory: '喷雾',
+    price: 125,
+    is_commercial: false,
+    recommend_reason: '【为你补齐】检测到你目前化妆台缺少纯矿物舒缓喷雾，在换季泛红或刷酸后可快速物理降温镇静。',
+    existing_vanity_count: 0,
+    existing_vanity_names: [],
+    contains_blacklist_ingredient: false,
+    blacklist_ingredient_names: [],
+    refill_available: false
+  },
+  {
+    id: 'mall_4',
+    brand: '完美日记 (Perfect Diary)',
+    name: '原石系列柔雾唇釉 #922 枫叶砖红 (平替推荐)',
+    category: 'lip',
+    subcategory: '口红',
+    price: 69,
+    is_commercial: false,
+    recommend_reason: '【化妆台平替】与你收藏的植村秀 #BR784 拥有高达 94% 色相匹配度，性价比高且不拔干。',
+    existing_vanity_count: 1,
+    existing_vanity_names: ['植村秀小黑方口红 #BR784'],
+    contains_blacklist_ingredient: false,
+    blacklist_ingredient_names: [],
+    refill_available: false
+  },
+  {
+    id: 'mall_5',
+    brand: '欧莱雅集团 (L\'Oréal Group)',
+    name: '全国线下绿色专柜空瓶回收预约权益',
+    category: 'tool',
+    subcategory: '线下服务',
+    price: 0,
+    is_commercial: false,
+    commercial_tag: '公益行动',
+    recommend_reason: '【线下服务】持任意品牌正品空瓶至欧莱雅线下专柜可免费清洗称重并兑换 150 绿色碳积分与专属肌肤诊断。',
+    existing_vanity_count: 0,
+    existing_vanity_names: [],
+    contains_blacklist_ingredient: false,
+    blacklist_ingredient_names: [],
+    refill_available: true
+  }
+];
+
+export const INITIAL_RECYCLE_RECORDS: CircularRecycleRecord[] = [
+  {
+    id: 'rec_1',
+    date: '2026-09-28',
+    station_name: '欧莱雅环球港旗舰店 · 绿色循环站',
+    type: 'glass_bottle',
+    item_name: '欧莱雅小黑瓶 30ml 玻璃空瓶 (含滴管分离)',
+    points: 100,
+    status: 'verified'
+  },
+  {
+    id: 'rec_2',
+    date: '2026-08-15',
+    station_name: '理肤泉社区智能回收箱 #04',
+    type: 'plastic_jar',
+    item_name: 'B5 修复霜塑料软管',
+    points: 50,
+    status: 'completed'
+  }
+];

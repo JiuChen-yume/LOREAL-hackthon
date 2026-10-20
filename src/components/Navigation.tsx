@@ -10,9 +10,11 @@ import {
   Smartphone,
   Eye,
   Volume2,
-  Camera
-  ,PlugZap
+  Camera,
+  PlugZap,
+  User
 } from 'lucide-react';
+import { UserProfile } from '../types/auth';
 
 export type ActiveTab = 'home' | 'vanity' | 'routine' | 'makeup' | 'memory' | 'mall' | 'circular' | 'api';
 
@@ -25,6 +27,8 @@ interface NavigationProps {
   onToggleHighContrast: () => void;
   onQuickAddProduct: () => void;
   onSpeakGreeting?: () => void;
+  currentUser?: UserProfile | null;
+  onOpenLogin?: () => void;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -35,7 +39,9 @@ export const Navigation: React.FC<NavigationProps> = ({
   isHighContrast,
   onToggleHighContrast,
   onQuickAddProduct,
-  onSpeakGreeting
+  onSpeakGreeting,
+  currentUser,
+  onOpenLogin
 }) => {
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: '首页', icon: <Sparkles className="w-3.5 h-3.5" /> },
@@ -45,11 +51,10 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: 'mall', label: '发现商城', icon: <ShoppingBag className="w-3.5 h-3.5" /> },
     { id: 'circular', label: '美丽循环', icon: <Recycle className="w-3.5 h-3.5" /> },
     { id: 'memory', label: '肌肤记忆档案', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
-    { id: 'api', label: 'API 接入中心', icon: <PlugZap className="w-3.5 h-3.5" /> },
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-[rgba(255,250,247,0.88)] backdrop-blur-xl border-b border-[var(--bt-line)]">
+    <header className="sticky top-0 z-40 bg-[#FAF6F3]/90 backdrop-blur-md border-b border-[#EDE5DE]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
         {/* Zone 1: Brand Wordmark */}
         <div className="flex items-center gap-2.5 shrink-0">
@@ -57,7 +62,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             onClick={() => onTabChange('home')}
             className="flex items-center gap-2.5 text-left focus-visible:outline-none"
           >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#f28a86] to-[#c94d5c] text-white flex items-center justify-center font-serif text-sm font-bold shadow-md">
+            <div className="w-8 h-8 rounded-full bg-[#962F43] text-white flex items-center justify-center font-serif text-sm font-bold shadow-2xs">
               妆
             </div>
             <div>
@@ -81,7 +86,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 onClick={() => onTabChange(item.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
                   isActive 
-                    ? 'bg-[var(--bt-wine)] text-white font-semibold shadow-sm' 
+                    ? 'bg-[#962F43] text-white font-semibold shadow-2xs' 
                     : 'text-stone-600 hover:text-stone-900 hover:bg-white/80'
                 }`}
               >
@@ -94,6 +99,15 @@ export const Navigation: React.FC<NavigationProps> = ({
 
         {/* Zone 3: Actions & Quick Utilities */}
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            className="hidden sm:flex items-center gap-1.5 rounded-full border border-[#E5D9D0] bg-white/80 px-2.5 py-1.5 text-[11px] text-stone-700 hover:bg-white"
+            title={currentUser?.isGuest ? '登录或注册' : '账号中心'}
+          >
+            {currentUser?.avatar ? <img src={currentUser.avatar} alt="" className="w-5 h-5 rounded-full object-cover" /> : <User className="w-3.5 h-3.5" />}
+            <span>{currentUser?.isGuest ? '登录 / 注册' : (currentUser?.nickname || '账号')}</span>
+          </button>
           {/* Audio voice greeting */}
           {onSpeakGreeting && (
             <button

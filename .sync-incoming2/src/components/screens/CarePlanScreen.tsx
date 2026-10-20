@@ -1,0 +1,1035 @@
+import React, { useState } from 'react';
+import { 
+  Sun, 
+  Moon, 
+  Clock, 
+  Sparkles, 
+  ChevronRight, 
+  Check, 
+  ArrowRight,
+  ShieldAlert, 
+  Droplets,
+  Calendar,
+  Bell,
+  Settings2,
+  CheckCircle2,
+  Circle,
+  AlertTriangle,
+  Heart,
+  Flame,
+  Award
+} from 'lucide-react';
+import { RoutinePlan, BeautyProduct, RoutineReminderSettings } from '../../types/beauty';
+import { vanityHero, skincareCalm } from '../../data/mockData';
+import { RoutinePushReminderModal } from '../routine/RoutinePushReminderModal';
+
+interface CarePlanScreenProps {
+  routinePlan: RoutinePlan | null;
+  products: BeautyProduct[];
+  onBack: () => void;
+  onGeneratePlan: () => void;
+  isGenerating: boolean;
+  reminderSettings?: RoutineReminderSettings;
+  onUpdateReminderSettings?: (settings: RoutineReminderSettings) => void;
+  onAddFeedbackLog?: (log: any) => void;
+  syncedProducts?: BeautyProduct[];
+  onRemoveSyncedProduct?: (id: string) => void;
+}
+
+export const CarePlanScreen: React.FC<CarePlanScreenProps> = ({
+  routinePlan,
+  products,
+  onBack,
+  onGeneratePlan,
+  isGenerating,
+  reminderSettings: propReminderSettings,
+  onUpdateReminderSettings,
+  onAddFeedbackLog,
+  syncedProducts = [],
+  onRemoveSyncedProduct
+}) => {
+  const [activeTab, setActiveTab] = useState<'routine' | 'scenario' | 'checkin' | 'review'>('routine');
+  const [onlyMyVanity, setOnlyMyVanity] = useState(true);
+  const [timeBudget, setTimeBudget] = useState<'3min' | '5min' | 'full'>('5min');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Push Reminder Modal State
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [reminderType, setReminderType] = useState<'morning' | 'evening'>('morning');
+
+  const [reminderSettings, setReminderSettings] = useState<RoutineReminderSettings>(propReminderSettings || {
+    enabled: true,
+    morningTime: '08:00',
+    eveningTime: '21:30',
+    webPushGranted: false,
+    coreAdviceMorning: '受干燥冷空气影响，角质层水分流失较快。晨间建议「温和无泡洁面 + 拍敷精华水」，选用滋润型乳液锁水，最后务必使用温和防晒成膜，抵御光老化与泛红。',
+    coreAdviceEvening: '夜间为屏障密集修护期。先用舒妍卸妆水彻底溶解彩妆浮尘，再厚敷二裂酵母修复精华深层滋养，夜间切忌高浓度频繁刷酸。'
+  });
+
+  const handleUpdateReminder = (newSettings: RoutineReminderSettings) => {
+    setReminderSettings(newSettings);
+    if (onUpdateReminderSettings) {
+      onUpdateReminderSettings(newSettings);
+    }
+    showToast('护肤推送提醒设置已更新！');
+  };
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  // Step Completion State (Interactive Check-off)
+  const [completedMorningSteps, setCompletedMorningSteps] = useState<number[]>([1]);
+  const [completedNightSteps, setCompletedNightSteps] = useState<number[]>([]);
+
+  // 1. Dynamic Steps Definition for 3min, 5min, and full
+  const getBaseMorningSteps = (budget: '3min' | '5min' | 'full') => {
+    if (budget === '3min') {
+      return [
+        {
+          num: 1,
+          cat: '洁面',
+          product: '怡丽丝尔净颜洁面乳',
+          dose: '约1cm',
+          time: '30秒',
+          note: '温水快速起泡轻揉T区，洗去睡眠油脂，快速唤醒',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '多效水乳',
+          product: 'IPSA 自律循环乳液',
+          dose: '2泵',
+          time: '30秒',
+          note: '水乳二合一掌心轻压吸收，为干渴角质快速补足脂质',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '快膜防晒',
+          product: 'ALLIE 润色温和防晒乳',
+          dose: '一元硬币大',
+          time: '1分钟',
+          note: '轻拍全脸迅速成膜，带自然提亮润色，3分钟极速出门',
+          img: skincareCalm
+        }
+      ];
+    } else if (budget === '5min') {
+      return [
+        {
+          num: 1,
+          cat: '洁面',
+          product: '怡丽丝尔净颜洁面乳',
+          dose: '约1cm',
+          time: '30秒',
+          note: '温和弱酸性清洁，手心搓出微泡轻揉T区，避免拉扯两颊干皮',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '爽肤水',
+          product: 'SK-II 护肤精华露 (神仙水)',
+          dose: '3-5滴',
+          time: '等待 30秒',
+          note: '掌心温热后按压全脸，平衡水油，改善粗糙暗沉',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '精华',
+          product: '雅诗兰黛小棕瓶精华',
+          dose: '2-3滴',
+          time: '等待 30秒',
+          note: '提升肌肤强韧度，由内向外提拉按摩至充分吸收',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '乳液',
+          product: 'IPSA 自律循环乳液',
+          dose: '2泵',
+          time: '轻拍吸收',
+          note: '锁住角质层水分，在眼角和鼻翼起皮处轻点加强',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '防晒',
+          product: 'ALLIE 润色温和防晒乳',
+          dose: '约1-2cm (一元硬币大)',
+          time: '等待成膜 1分钟',
+          note: '抵御日间紫外线，轻拍均匀勿反复揉搓以免搓泥',
+          img: skincareCalm
+        }
+      ];
+    } else {
+      // 'full' (7 steps)
+      return [
+        {
+          num: 1,
+          cat: '洁面',
+          product: '怡丽丝尔净颜洁面乳',
+          dose: '约1cm',
+          time: '45秒',
+          note: '温水深层清洁，丰盈泡沫带走毛孔残留角质',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '二次清洁水',
+          product: 'SK-II 嫩肤清莹露',
+          dose: '化妆棉擦拭',
+          time: '45秒',
+          note: '顺着肌肤纹理轻拭，软化角质，打通吸收通路',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '肌底精华露',
+          product: 'SK-II 护肤精华露 (神仙水)',
+          dose: '5-8滴',
+          time: '1分钟',
+          note: '双手掌心轻捂面颊按压，深层沁润透亮',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '抗氧精华',
+          product: '雅诗兰黛小棕瓶修护精华',
+          dose: '一滴管',
+          time: '1分钟',
+          note: '抗自由基氧化，紧致肌肤轮廓',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '赋活眼霜',
+          product: '雅诗兰黛小棕瓶特润眼霜',
+          dose: '米粒大小',
+          time: '1分钟',
+          note: '无名指在眼周点按消水肿，淡化干纹细纹',
+          img: skincareCalm
+        },
+        {
+          num: 6,
+          cat: '锁水乳液',
+          product: 'IPSA 自律循环乳液',
+          dose: '2泵',
+          time: '1分钟',
+          note: '轻柔涂抹，强韧角质皮脂膜',
+          img: skincareCalm
+        },
+        {
+          num: 7,
+          cat: '防护隔离',
+          product: 'ALLIE 润色温和防晒乳',
+          dose: '硬币大小',
+          time: '2分钟成膜',
+          note: '全脸及颈部细致涂抹，全天抵御光老化',
+          img: skincareCalm
+        }
+      ];
+    }
+  };
+
+  const getBaseNightSteps = (budget: '3min' | '5min' | 'full') => {
+    if (budget === '3min') {
+      return [
+        {
+          num: 1,
+          cat: '免洗温和净卸',
+          product: '贝德玛舒妍温和卸妆水',
+          dose: '浸润棉片',
+          time: '1分钟',
+          note: '免二次强力洁面，温和擦除一整天灰尘与底妆',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '密集修护面霜',
+          product: '兰芝致美紧颜面霜 (或理肤泉B5)',
+          dose: '珍珠大小',
+          time: '1分钟',
+          note: '掌心温热乳化后全脸紧实按压，锁水整夜安心入睡',
+          img: skincareCalm
+        }
+      ];
+    } else if (budget === '5min') {
+      return [
+        {
+          num: 1,
+          cat: '卸妆',
+          product: '贝德玛舒妍温和卸妆水',
+          dose: '浸润化妆棉',
+          time: '敷15秒轻擦',
+          note: '温和溶解防晒浮尘，湿敷眼唇避免用力拉扯睫毛',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '洁面',
+          product: '芙丽芳丝氨基酸洗面霜',
+          dose: '黄豆粒大小',
+          time: '30秒',
+          note: '温水快速冲洗，不紧绷不伤脂质屏障',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '爽肤水',
+          product: 'SK-II 护肤精华露',
+          dose: '4-5滴',
+          time: '等待 30秒',
+          note: '夜间深层浸润，舒缓白天外界环境带来的干燥刺痛',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '修护精华',
+          product: '雅诗兰黛特润修护肌透精华',
+          dose: '一滴管',
+          time: '配合掌心轻捂',
+          note: '夜间二裂酵母黄金修护，对抗自由基暗沉',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '面霜',
+          product: '兰芝致美紧颜面霜 (或B5厚敷)',
+          dose: '珍珠大小',
+          time: '轻柔按压',
+          note: '丰润锁水保护膜，防止空调房整夜水分蒸发',
+          img: skincareCalm
+        }
+      ];
+    } else {
+      // 'full' (7 steps)
+      return [
+        {
+          num: 1,
+          cat: '眼唇专业卸妆',
+          product: '贝德玛眼唇净卸液',
+          dose: '敷15秒',
+          time: '1分钟',
+          note: '湿敷眼周溶解防水睫毛膏与染唇液，轻拭不伤皮',
+          img: skincareCalm
+        },
+        {
+          num: 2,
+          cat: '深层洁颜油',
+          product: '植村秀琥珀臻萃洁颜油',
+          dose: '3泵',
+          time: '2分钟',
+          note: '干手干脸打圈溶解黑头油脂，加温水充分乳化净澈',
+          img: skincareCalm
+        },
+        {
+          num: 3,
+          cat: '氨基酸洁面',
+          product: '芙丽芳丝洗面霜',
+          dose: '黄豆粒大',
+          time: '45秒',
+          note: '二次洁净，洗后清爽柔软不假滑',
+          img: skincareCalm
+        },
+        {
+          num: 4,
+          cat: '浸润精华水',
+          product: 'SK-II 护肤精华露',
+          dose: '一元硬币大',
+          time: '1分钟',
+          note: '掌心温热按压，充分渗透角质深层补足水分',
+          img: skincareCalm
+        },
+        {
+          num: 5,
+          cat: '密集夜修精华',
+          product: '雅诗兰黛小棕瓶肌透修护精华',
+          dose: '一滴管',
+          time: '1.5分钟',
+          note: '由内向外提拉，夜间密集修护受损屏障',
+          img: skincareCalm
+        },
+        {
+          num: 6,
+          cat: '抗皱淡纹眼霜',
+          product: '雅诗兰黛眼霜',
+          dose: '米粒大小',
+          time: '1.5分钟',
+          note: '配合指腹打圈按摩，缓解眼周疲态与干纹',
+          img: skincareCalm
+        },
+        {
+          num: 7,
+          cat: '奢养修复面霜',
+          product: '理肤泉B5修复霜 (或兰芝面霜)',
+          dose: '樱桃大小',
+          time: '2分钟',
+          note: '掌心乳化至微透明按压，整夜封包密集修复脆弱屏障',
+          img: skincareCalm
+        }
+      ];
+    }
+  };
+
+  // Compile active steps with any synced products from vanity
+  const rawMorning = getBaseMorningSteps(timeBudget);
+  const rawNight = getBaseNightSteps(timeBudget);
+
+  // Append synced products to steps
+  const morningSteps = [
+    ...rawMorning,
+    ...syncedProducts.map((p, idx) => ({
+      num: rawMorning.length + idx + 1,
+      cat: p.subcategory || '加餐护理',
+      product: p.product_name,
+      dose: '适量',
+      time: '1分钟',
+      note: `⭐ 来自化妆台同步：${p.user_notes || '重点针对脆弱部位修护'}`,
+      img: p.image_url || skincareCalm,
+      isSynced: true,
+      productId: p.id
+    }))
+  ];
+
+  const nightSteps = [
+    ...rawNight,
+    ...syncedProducts.map((p, idx) => ({
+      num: rawNight.length + idx + 1,
+      cat: p.subcategory || '夜间加餐',
+      product: p.product_name,
+      dose: '适量',
+      time: '1分钟',
+      note: `⭐ 来自化妆台同步：${p.user_notes || '睡前厚涂修护'}`,
+      img: p.image_url || skincareCalm,
+      isSynced: true,
+      productId: p.id
+    }))
+  ];
+
+  const toggleMorningStep = (num: number) => {
+    if (completedMorningSteps.includes(num)) {
+      setCompletedMorningSteps(completedMorningSteps.filter(n => n !== num));
+    } else {
+      const next = [...completedMorningSteps, num];
+      setCompletedMorningSteps(next);
+      if (next.length === morningSteps.length) {
+        showToast('🎉 太棒啦！今日晨间护肤步骤已全部完成！');
+      } else {
+        showToast(`已完成第 ${num} 步打卡`);
+      }
+    }
+  };
+
+  const toggleNightStep = (num: number) => {
+    if (completedNightSteps.includes(num)) {
+      setCompletedNightSteps(completedNightSteps.filter(n => n !== num));
+    } else {
+      const next = [...completedNightSteps, num];
+      setCompletedNightSteps(next);
+      if (next.length === nightSteps.length) {
+        showToast('🌙 晚间睡前修护已全部完成，祝好梦！');
+      } else {
+        showToast(`已完成第 ${num} 步打卡`);
+      }
+    }
+  };
+
+  // 4 Special Scenarios
+  const specialScenarios = [
+    {
+      id: 'stayup',
+      name: '熬夜暗沉急救',
+      icon: '⚡',
+      summary: '告别垮脸暗沉，抗糖抗氧 + 咖啡因眼周消水肿',
+      advice: '洁面后先用冷藏化妆棉湿敷眼周 3 分钟，再涂抹二裂酵母抗氧精华，面霜中滴入半滴角鲨烷锁油。',
+      matched: ['雅诗兰黛小棕瓶', '理肤泉B5修复霜', '欧莱雅黑精华']
+    },
+    {
+      id: 'redness',
+      name: '换季脱屑泛红',
+      icon: '🌸',
+      summary: '角质屏障修护，严禁去角质与刷酸，极简维稳',
+      advice: '停止一切水杨酸与果酸！温水轻拍后仅用修丽可色修 + 理肤泉B5薄涂，减少摩擦。',
+      matched: ['修丽可色修精华', '理肤泉B5修复霜', '芙丽芳丝洁面']
+    },
+    {
+      id: 'sunburn',
+      name: '暴晒晒后舒缓',
+      icon: '☀️',
+      summary: '物理降温补水，暂缓美白活性成分，舒缓灼热',
+      advice: '先用冷水喷雾冷敷镇定 10 分钟，涂抹芦荟或玻尿酸原液补水，48小时内严禁使用A醇与酒精。',
+      matched: ['喷雾冷水湿敷', 'SK-II神仙水', '理肤泉B5']
+    },
+    {
+      id: 'flight',
+      name: '长途差旅飞行',
+      icon: '✈️',
+      summary: '机舱极度干燥脱水，分区补水与油膜高密封',
+      advice: '机舱湿度低于 20%，登机前薄揉芭比波朗橘子面霜在鼻翼法令纹，中途使用免洗晚安面膜锁水。',
+      matched: ['芭比波朗橘子面霜', '自律循环乳液', '滋养面霜']
+    }
+  ];
+
+  // Check-in State
+  const [selectedFeelings, setSelectedFeelings] = useState<string[]>(['水润', '舒适']);
+  const [checkinStreak, setCheckinStreak] = useState(7);
+
+  return (
+    <div className="p-4 space-y-4 text-stone-900 select-none bg-[#FAF6F3]">
+      {/* Toast Alert */}
+      {toastMessage && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-stone-900/90 backdrop-blur-md text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center gap-1.5 animate-in fade-in">
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* 1. Header */}
+      <div className="relative pt-1 flex items-start justify-between">
+        <div className="space-y-0.5 max-w-[240px]">
+          <h1 className="text-2xl font-bold font-serif tracking-tight text-stone-900">
+            AI 护理计划
+          </h1>
+          <p className="text-[11px] text-stone-500">
+            基于你的化妆台 · 个性化生成专属护理流程
+          </p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-[11px] font-serif text-rose-800/80 italic">
+            更懂你的每一寸肌肤 ♡
+          </p>
+        </div>
+      </div>
+
+      {/* 2. PUSH NOTIFICATION REMINDER BANNER (基于推送通知的日常护肤提醒) */}
+      <div className="rounded-3xl bg-gradient-to-r from-[#FFF5F1] via-[#FDF0EB] to-[#FCEAE6] p-3.5 border border-[#F5DCD5] shadow-xs space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-xs">
+              <Bell className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-xs font-bold text-stone-900">
+                  日常护肤推送提醒
+                </h3>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-bold">
+                  {reminderSettings.enabled ? '已开启' : '已暂停'}
+                </span>
+              </div>
+              <p className="text-[10px] text-stone-500 mt-0.5">
+                早 {reminderSettings.morningTime} · 晚 {reminderSettings.eveningTime} 自动弹出今日核心护肤建议
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              setReminderType('morning');
+              setShowReminderModal(true);
+            }}
+            className="px-2.5 py-1 rounded-full bg-white text-stone-700 hover:text-stone-900 border border-stone-200 text-[11px] font-semibold flex items-center gap-1 shadow-2xs"
+          >
+            <Settings2 className="w-3 h-3" />
+            <span>设置时间</span>
+          </button>
+        </div>
+
+        {/* Action Triggers to Test Push Popup */}
+        <div className="pt-2 border-t border-rose-200/50 flex items-center gap-2">
+          <button
+            onClick={() => {
+              setReminderType('morning');
+              setShowReminderModal(true);
+            }}
+            className="flex-1 py-1.5 rounded-xl bg-white/90 hover:bg-white text-stone-800 border border-rose-200 text-xs font-medium flex items-center justify-center gap-1.5 shadow-2xs transition-colors"
+          >
+            <Sun className="w-3.5 h-3.5 text-amber-500" />
+            <span>弹出晨间建议</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setReminderType('evening');
+              setShowReminderModal(true);
+            }}
+            className="flex-1 py-1.5 rounded-xl bg-white/90 hover:bg-white text-stone-800 border border-rose-200 text-xs font-medium flex items-center justify-center gap-1.5 shadow-2xs transition-colors"
+          >
+            <Moon className="w-3.5 h-3.5 text-indigo-500" />
+            <span>弹出晚间修护</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Top Segmented Pills (日常 Routine | 特殊场景 | 护肤打卡 | 周期复盘) */}
+      <div className="grid grid-cols-4 gap-1 p-1 bg-white/70 rounded-full border border-[#EDE5DE]">
+        <button
+          onClick={() => setActiveTab('routine')}
+          className={`py-1.5 text-xs font-semibold rounded-full transition-all text-center ${
+            activeTab === 'routine' 
+              ? 'bg-gradient-to-r from-[#E25C70] to-[#CF3F57] text-white shadow-2xs' 
+              : 'text-stone-600 hover:text-stone-900'
+          }`}
+        >
+          日常流程
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('scenario');
+            showToast('已切换至特殊场景应急护理模式');
+          }}
+          className={`py-1.5 text-xs font-medium rounded-full transition-all text-center ${
+            activeTab === 'scenario' 
+              ? 'bg-gradient-to-r from-[#E25C70] to-[#CF3F57] text-white shadow-2xs' 
+              : 'text-stone-600 hover:text-stone-900'
+          }`}
+        >
+          特殊场景
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('checkin');
+            showToast('已切换至护肤打卡记录');
+          }}
+          className={`py-1.5 text-xs font-medium rounded-full transition-all text-center ${
+            activeTab === 'checkin' 
+              ? 'bg-gradient-to-r from-[#E25C70] to-[#CF3F57] text-white shadow-2xs' 
+              : 'text-stone-600 hover:text-stone-900'
+          }`}
+        >
+          护肤打卡
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('review');
+            showToast('已载入最近生理周期与肌肤复盘');
+          }}
+          className={`py-1.5 text-xs font-medium rounded-full transition-all text-center ${
+            activeTab === 'review' 
+              ? 'bg-gradient-to-r from-[#E25C70] to-[#CF3F57] text-white shadow-2xs' 
+              : 'text-stone-600 hover:text-stone-900'
+          }`}
+        >
+          周期复盘
+        </button>
+      </div>
+
+      {/* TAB 1: 日常 ROUTINE */}
+      {activeTab === 'routine' && (
+        <div className="space-y-4 animate-in fade-in">
+          {/* 只使用我的化妆台 Card */}
+          <div className="rounded-3xl bg-white p-3.5 border border-[#F0EBE6] shadow-xs flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl overflow-hidden bg-stone-100 border border-stone-200/60 shrink-0">
+                <img src={vanityHero} alt="化妆台产品" className="w-full h-full object-cover" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1 text-xs font-bold text-stone-900">
+                  <span>只使用我的化妆台</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-stone-400" />
+                </div>
+                <p className="text-[10px] text-stone-500 mt-0.5">
+                  基于你已有的产品，生成可执行的护理计划
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setOnlyMyVanity(!onlyMyVanity)}
+              className={`w-12 h-6 rounded-full transition-colors relative shrink-0 p-0.5 ${
+                onlyMyVanity ? 'bg-[#E25C70]' : 'bg-stone-300'
+              }`}
+            >
+              <div className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform ${
+                onlyMyVanity ? 'translate-x-6' : 'translate-x-0'
+              }`} />
+            </button>
+          </div>
+
+          {/* 3 Time Budget Selector Pills */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: '3min', label: '3 分钟', sub: '极速出门 (3步)' },
+              { id: '5min', label: '5 分钟', sub: '精细平衡 (5步)' },
+              { id: 'full', label: '完整护理', sub: '全套呵护 (7步)' }
+            ].map((b) => (
+              <button
+                key={b.id}
+                onClick={() => {
+                  setTimeBudget(b.id as any);
+                  setCompletedMorningSteps([1]);
+                  setCompletedNightSteps([]);
+                  showToast(`已切换至「${b.label}」护理方案（共 ${b.id === '3min' ? '3' : b.id === '5min' ? '5' : '7'} 步）`);
+                }}
+                className={`rounded-2xl p-2.5 text-center transition-all ${
+                  timeBudget === b.id
+                    ? 'bg-white border-2 border-[#E25C70] text-[#CF3F57] shadow-xs ring-2 ring-[#E25C70]/20'
+                    : 'bg-white/80 border border-[#EDE5DE] text-stone-600 hover:bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-1 text-xs font-bold">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{b.label}</span>
+                  {timeBudget === b.id && <span className="text-[9px] text-[#CF3F57] animate-pulse">✨</span>}
+                </div>
+                <div className="text-[10px] mt-0.5 text-stone-400">{b.sub}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Synced Products Banner if added from vanity */}
+          {syncedProducts.length > 0 && (
+            <div className="p-3 bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200 rounded-2xl flex items-center justify-between text-xs text-rose-900 shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <span className="text-base">⭐</span>
+                <div>
+                  <span className="font-bold block">已从化妆台同步 {syncedProducts.length} 件单品排入流程</span>
+                  <span className="text-[10px] text-stone-500">
+                    {syncedProducts.map(p => p.product_name).join('、')}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-rose-700 font-bold border border-rose-200">
+                已生效
+              </span>
+            </div>
+          )}
+
+          {/* 晨间护理 Section */}
+          <div className="rounded-3xl bg-white p-4 border border-[#F0EBE6] shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">☀️</span>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">晨间护理 ({timeBudget === '3min' ? '3步极速' : timeBudget === '5min' ? '5步平衡' : '7步全套'})</h3>
+                  <p className="text-[10px] text-stone-400">唤醒肌肤 · 清爽透亮一整天</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-emerald-700 font-semibold">
+                  完成 {completedMorningSteps.length}/{morningSteps.length}
+                </span>
+                <div className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[11px] font-bold border border-amber-200">
+                  {timeBudget === '3min' ? '约 3分钟' : timeBudget === '5min' ? '约 5分钟' : '约 12分钟'}
+                </div>
+              </div>
+            </div>
+
+            {/* Morning Steps Dynamic Grid */}
+            <div className={`grid gap-1.5 pt-1 ${
+              timeBudget === '3min' 
+                ? 'grid-cols-3' 
+                : timeBudget === '5min' 
+                ? 'grid-cols-3 sm:grid-cols-5' 
+                : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-7'
+            }`}>
+              {morningSteps.map((s: any) => {
+                const isDone = completedMorningSteps.includes(s.num);
+                return (
+                  <div 
+                    key={s.num}
+                    onClick={() => toggleMorningStep(s.num)}
+                    className={`rounded-2xl p-2 border transition-all cursor-pointer flex flex-col items-center text-center space-y-1 ${
+                      isDone 
+                        ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900 shadow-2xs' 
+                        : 'bg-stone-50/70 border-stone-100 hover:border-stone-200 text-stone-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full px-0.5">
+                      <span className={`text-[10px] font-bold ${isDone ? 'text-emerald-700' : 'text-stone-400'}`}>
+                        0{s.num}
+                      </span>
+                      {isDone ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 fill-emerald-100" />
+                      ) : (
+                        <Circle className="w-3.5 h-3.5 text-stone-300" />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-bold">{s.cat}</span>
+                    {s.isSynced && (
+                      <span className="text-[8px] bg-rose-100 text-rose-800 px-1 rounded-full font-bold">
+                        台面同步
+                      </span>
+                    )}
+                    <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-stone-200/50 my-0.5">
+                      <img src={s.img} alt={s.product} className="w-full h-full object-cover" />
+                    </div>
+                    <span className="text-[10px] font-medium line-clamp-1">{s.product}</span>
+                    <span className="text-[9px] px-1 py-0.2 rounded-full bg-amber-100/80 text-amber-900 font-semibold">
+                      {s.dose}
+                    </span>
+                    <span className="text-[8px] text-stone-400">{s.time}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 晚间护理 Section */}
+          <div className="rounded-3xl bg-white p-4 border border-[#F0EBE6] shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🌙</span>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">晚间护理 ({timeBudget === '3min' ? '2步极简' : timeBudget === '5min' ? '5步修护' : '7步奢养'})</h3>
+                  <p className="text-[10px] text-stone-400">深层清洁 · 修护滋养一整晚</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-emerald-700 font-semibold">
+                  完成 {completedNightSteps.length}/{nightSteps.length}
+                </span>
+                <div className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-800 text-[11px] font-bold border border-indigo-200">
+                  {timeBudget === '3min' ? '约 2分钟' : timeBudget === '5min' ? '约 5分钟' : '约 12分钟'}
+                </div>
+              </div>
+            </div>
+
+            {/* Night Steps Dynamic Grid */}
+            <div className={`grid gap-1.5 pt-1 ${
+              timeBudget === '3min' 
+                ? 'grid-cols-2 sm:grid-cols-2' 
+                : timeBudget === '5min' 
+                ? 'grid-cols-3 sm:grid-cols-5' 
+                : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-7'
+            }`}>
+              {nightSteps.map((s: any) => {
+                const isDone = completedNightSteps.includes(s.num);
+                return (
+                  <div 
+                    key={s.num}
+                    onClick={() => toggleNightStep(s.num)}
+                    className={`rounded-2xl p-2 border transition-all cursor-pointer flex flex-col items-center text-center space-y-1 ${
+                      isDone 
+                        ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900 shadow-2xs' 
+                        : 'bg-stone-50/70 border-stone-100 hover:border-stone-200 text-stone-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full px-0.5">
+                      <span className={`text-[10px] font-bold ${isDone ? 'text-emerald-700' : 'text-stone-400'}`}>
+                        0{s.num}
+                      </span>
+                      {isDone ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 fill-emerald-100" />
+                      ) : (
+                        <Circle className="w-3.5 h-3.5 text-stone-300" />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-bold">{s.cat}</span>
+                    {s.isSynced && (
+                      <span className="text-[8px] bg-rose-100 text-rose-800 px-1 rounded-full font-bold">
+                        台面同步
+                      </span>
+                    )}
+                    <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-stone-200/50 my-0.5">
+                      <img src={s.img} alt={s.product} className="w-full h-full object-cover" />
+                    </div>
+                    <span className="text-[10px] font-medium line-clamp-1">{s.product}</span>
+                    <span className="text-[9px] px-1 py-0.2 rounded-full bg-rose-100/80 text-rose-900 font-semibold">
+                      {s.dose}
+                    </span>
+                    <span className="text-[8px] text-stone-400">{s.time}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: 特殊场景 (Special Scenarios) */}
+      {activeTab === 'scenario' && (
+        <div className="space-y-3 animate-in fade-in">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-xs font-bold text-stone-900">4 大特殊场景定制急救流程</h2>
+            <span className="text-[10px] text-rose-700 font-semibold">100% 调配化妆台</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {specialScenarios.map((sc) => (
+              <div 
+                key={sc.id}
+                className="bg-white rounded-3xl p-4 border border-[#F0EBE6] shadow-xs space-y-2.5"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{sc.icon}</span>
+                    <div>
+                      <h3 className="text-xs font-bold text-stone-900">{sc.name}</h3>
+                      <p className="text-[10px] text-stone-400 mt-0.5">{sc.summary}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => showToast(`已将「${sc.name}」排入今日急救护理！`)}
+                    className="px-2.5 py-1 rounded-full bg-[#962F43] text-white text-[10px] font-bold shadow-2xs"
+                  >
+                    应用方案
+                  </button>
+                </div>
+
+                <p className="text-xs text-stone-600 bg-stone-50 p-2.5 rounded-2xl leading-relaxed">
+                  {sc.advice}
+                </p>
+
+                <div className="text-[10px] text-stone-500 flex items-center gap-1.5 flex-wrap pt-1">
+                  <span>调用单品：</span>
+                  {sc.matched.map((m) => (
+                    <span key={m} className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 font-medium">
+                      ✓ {m}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: 护肤打卡 (Check-in) */}
+      {activeTab === 'checkin' && (
+        <div className="bg-white rounded-3xl p-5 border border-[#F0EBE6] shadow-xs space-y-4 animate-in fade-in">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-bold">
+                <Flame className="w-4 h-4 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-stone-900">今日护肤打卡</h3>
+                <p className="text-[10px] text-stone-400">记录每一次认真护肤给肌肤带来的改变</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 bg-amber-50 px-3 py-1 rounded-full border border-amber-200 text-amber-900 font-bold text-xs">
+              <Award className="w-3.5 h-3.5 text-amber-600" />
+              <span>连续打卡 {checkinStreak} 天</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-stone-800 block mb-2">
+              今天上完护肤后的面部感受：
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {['水润饱满', '清爽通透', '轻微紧绷', '泛红舒缓', '微微刺痛', '出油被抑制'].map((feel) => {
+                const isSelected = selectedFeelings.includes(feel);
+                return (
+                  <button
+                    key={feel}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedFeelings(selectedFeelings.filter(f => f !== feel));
+                      } else {
+                        setSelectedFeelings([...selectedFeelings, feel]);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      isSelected 
+                        ? 'bg-[#962F43] border-[#962F43] text-white shadow-2xs' 
+                        : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
+                    }`}
+                  >
+                    {isSelected ? '✓ ' : ''}{feel}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="pt-2 flex items-center justify-between border-t border-stone-100">
+            <span className="text-[11px] text-stone-500">今日打卡将同步至「肌肤记忆档案」</span>
+            <button
+              onClick={() => {
+                setCheckinStreak(prev => prev + 1);
+                if (onAddFeedbackLog) {
+                  const newLog = {
+                    id: `log_${Date.now()}`,
+                    date: new Date().toISOString().split('T')[0],
+                    routine_type: 'morning' as const,
+                    feelings: selectedFeelings.length > 0 ? selectedFeelings : ['水润饱满'],
+                    mood: '护肤打卡完成',
+                    notes: `今日护肤打卡记录（连续打卡第 ${checkinStreak + 1} 天）：体感「${selectedFeelings.join('、') || '水润饱满'}」，晨间维稳水乳防晒流程已完成。`,
+                    products_used_ids: products.slice(0, 3).map(p => p.id)
+                  };
+                  onAddFeedbackLog(newLog);
+                }
+                showToast('🎉 今日护肤打卡成功！已同步至「肌肤记忆档案」');
+              }}
+              className="px-4 py-2 rounded-full bg-gradient-to-r from-[#E25C70] to-[#CF3F57] text-white text-xs font-bold shadow-xs active:scale-95 transition-transform"
+            >
+              提交今日打卡
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: 周期复盘 (Cycle Review) */}
+      {activeTab === 'review' && (
+        <div className="bg-white rounded-3xl p-5 border border-[#F0EBE6] shadow-xs space-y-4 animate-in fade-in">
+          <div>
+            <h3 className="text-sm font-bold text-stone-900 font-serif">生理周期护肤复盘</h3>
+            <p className="text-[10px] text-stone-400 mt-0.5">结合女性生理周期荷尔蒙波动，动态调整护肤节奏</p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { phase: '经期 (第1-5天)', status: '易水肿/敏弱', advice: '精简保湿，舒缓泛红' },
+              { phase: '卵泡期 (第6-14天)', status: '状态巅峰期', advice: '水光透亮，可密集抗老' },
+              { phase: '排卵期 (第15-18天)', status: '水油平衡', advice: '做好防晒，维持稳定' },
+              { phase: '黄体期 (第19-28天)', status: '皮脂分泌旺盛', advice: '水杨酸疏通，控油防痘' }
+            ].map((p, idx) => (
+              <div key={p.phase} className={`p-3 rounded-2xl border ${idx === 1 ? 'bg-rose-50/80 border-rose-300 ring-1 ring-rose-200' : 'bg-stone-50 border-stone-200'}`}>
+                <span className="text-[10px] font-bold text-stone-900 block">{p.phase}</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-white text-rose-700 font-semibold inline-block mt-1">
+                  {p.status}
+                </span>
+                <p className="text-[10px] text-stone-600 mt-1 leading-tight">{p.advice}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl flex items-start gap-2 text-xs text-amber-900">
+            <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <p>
+              <strong>黑榜成分拦截报告：</strong>本周护理计划已成功拦截【高浓度水杨酸】与【强刺激防腐剂】，保护偏干泛红屏障，未排入任何可能致敏单品。
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Bottom Action Button */}
+      <div className="pt-2">
+        <button
+          disabled={isGenerating}
+          onClick={() => {
+            onGeneratePlan();
+            showToast('正在调取化妆台成分库，生成最新智能流程...');
+          }}
+          className="w-full py-3 rounded-full bg-gradient-to-r from-[#E25C70] via-[#D84C62] to-[#CF3F57] hover:from-[#d64e62] hover:to-[#bd334b] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 transition-all active:scale-98"
+        >
+          <Sparkles className="w-4 h-4 fill-white" />
+          <span>{isGenerating ? 'AI 正在分析配方生成中...' : '重新生成今日个性化护理计划 >'}</span>
+        </button>
+      </div>
+
+      {/* Routine Push Reminder Modal */}
+      <RoutinePushReminderModal
+        isOpen={showReminderModal}
+        onClose={() => setShowReminderModal(false)}
+        type={reminderType}
+        reminderSettings={reminderSettings}
+        onUpdateSettings={handleUpdateReminder}
+        onStartRoutine={(type) => {
+          setActiveTab('routine');
+          showToast(`已开始执行${type === 'morning' ? '晨间' : '晚间'}护肤流程！`);
+        }}
+        products={products}
+      />
+    </div>
+  );
+};

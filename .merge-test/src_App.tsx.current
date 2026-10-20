@@ -1,0 +1,961 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import { Navigation, MobileTabBar, ActiveTab } from './components/Navigation';
+import { HomeCompanion } from './components/HomeCompanion';
+import { VanityHub } from './components/VanityHub';
+import { CareRoutine } from './components/CareRoutine';
+import { MakeupStudio } from './components/MakeupStudio';
+import { SkinMemory } from './components/SkinMemory';
+import { DiscoveryMall } from './components/DiscoveryMall';
+import { BeautyCircular } from './components/BeautyCircular';
+
+import { AddProductModal } from './components/AddProductModal';
+import { CompatibilityModal } from './components/CompatibilityModal';
+import { IdleRescueModal } from './components/IdleRescueModal';
+import { ProductDetailModal } from './components/ProductDetailModal';
+import { ApiIntegrationPanel } from './components/ApiIntegrationPanel';
+
+// WeChat Mini-Program Screens matching user mockup UI
+import { WeChatFrame, MiniProgramTab } from './components/ui/WeChatFrame';
+import { HomeScreen } from './components/screens/HomeScreen';
+import { VanityScreen } from './components/screens/VanityScreen';
+import { CarePlanScreen } from './components/screens/CarePlanScreen';
+import { MakeupScreen } from './components/screens/MakeupScreen';
+import { MallScreen } from './components/screens/MallScreen';
+import { CircularScreen } from './components/screens/CircularScreen';
+import { ProfileScreen } from './components/screens/ProfileScreen';
+import { RoutinePushReminderModal } from './components/routine/RoutinePushReminderModal';
+import { enrichProduct } from './services/productEnrichmentService';
+
+import { 
+  BeautyProduct, 
+  RoutinePlan, 
+  MakeupLook, 
+  MallItem, 
+  CircularRecycleRecord, 
+  BlacklistIngredient,
+  SkinFeedbackLog,
+  CyclePhase,
+  IdolCompanionProfile,
+  ProductStatus,
+  ListRating,
+  RoutineReminderSettings
+} from './types/beauty';
+
+import { 
+  INITIAL_PRODUCTS, 
+  INITIAL_BLACKLIST, 
+  INITIAL_ROUTINE_PLAN, 
+  INITIAL_MAKEUP_LOOKS, 
+  INITIAL_MALL_ITEMS, 
+  INITIAL_RECYCLE_RECORDS 
+} from './data/mockData';
+
+export default function App() {
+  // Navigation State
+  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+
+  // Accessibility & UI Modes (Default to WeChat Mini-Program for user presentation)
+  const [isMobilePreview, setIsMobilePreview] = useState(true);
+  const [isHighContrast, setIsHighContrast] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+
+  // Female Physiological Cycle State
+  const [cyclePhase, setCyclePhase] = useState<CyclePhase>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_cycle_phase');
+      if (saved) return saved as CyclePhase;
+    } catch (e) {}
+    return 'follicular';
+  });
+
+  // Idol Companion Profile State (From Proposal)
+  const [idolProfile, setIdolProfile] = useState<IdolCompanionProfile>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_idol_profile');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      enabled: true,
+      style: 'idol',
+      idolName: '田柾国',
+      cosProjectName: '赛博机械精灵',
+      reminderTimeMorning: '08:30',
+      reminderTimeEvening: '22:00'
+    };
+  });
+
+  // Core Data Center State (Persisted in localStorage with fallback)
+  const [products, setProducts] = useState<BeautyProduct[]>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_products');
+      if (saved) {
+        const parsed = JSON.parse(saved) as BeautyProduct[];
+        return parsed;
+      }
+    } catch (e) {}
+    return INITIAL_PRODUCTS;
+  });
+
+  const [blacklist, setBlacklist] = useState<BlacklistIngredient[]>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_blacklist');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_BLACKLIST;
+  });
+
+  const [routinePlan, setRoutinePlan] = useState<RoutinePlan>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_routine_plan');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_ROUTINE_PLAN;
+  });
+
+  const [looks, setLooks] = useState<MakeupLook[]>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_looks');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_MAKEUP_LOOKS;
+  });
+
+  const [mallItems, setMallItems] = useState<MallItem[]>(INITIAL_MALL_ITEMS);
+  const [recycleRecords, setRecycleRecords] = useState<CircularRecycleRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_recycle_records');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_RECYCLE_RECORDS;
+  });
+
+  const [feedbackLogs, setFeedbackLogs] = useState<SkinFeedbackLog[]>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_feedback_logs');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      {
+        id: 'log_prev_1',
+        date: '2026-10-14',
+        routine_type: 'morning',
+        feelings: ['舒服水润'],
+        mood: '充满元气',
+        notes: '黑精华打底配合色修，早起泛红明显减轻，上粉底一整天不卡粉。',
+        products_used_ids: ['prod_1', 'prod_5', 'prod_10']
+      }
+    ];
+  });
+
+  // Modal States
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addModalMode, setAddModalMode] = useState<'camera' | 'barcode' | 'manual' | 'batch'>('barcode');
+  const [showCompatibilityModal, setShowCompatibilityModal] = useState(false);
+  const [compatibilityTargetProducts, setCompatibilityTargetProducts] = useState<BeautyProduct[]>([]);
+  const [idleRescueProduct, setIdleRescueProduct] = useState<BeautyProduct | null>(null);
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState<BeautyProduct | null>(null);
+  const [showPrivacyPolicyModal, setShowPrivacyPolicyModal] = useState(false);
+  const [showGlobalReminderModal, setShowGlobalReminderModal] = useState(false);
+  const [globalReminderType, setGlobalReminderType] = useState<'morning' | 'evening'>('morning');
+
+  const [reminderSettings, setReminderSettings] = useState<RoutineReminderSettings>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_routine_reminder');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      enabled: true,
+      morningTime: '08:00',
+      eveningTime: '21:30',
+      webPushGranted: false,
+      coreAdviceMorning: '受干燥冷空气影响，角质层水分流失较快。晨间建议「温和无泡洁面 + 拍敷精华水」，选用滋润型乳液锁水，最后务必使用温和防晒成膜，抵御光老化与泛红。',
+      coreAdviceEvening: '夜间为屏障密集修护期。先用舒妍卸妆水彻底溶解彩妆浮尘，再厚敷二裂酵母修复精华深层滋养，夜间切忌高浓度频繁刷酸。'
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('vanity_routine_reminder', JSON.stringify(reminderSettings));
+  }, [reminderSettings]);
+
+  // Async API loading indicators
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [isGeneratingLook, setIsGeneratingLook] = useState(false);
+
+  // Sync to localStorage
+  useEffect(() => {
+    localStorage.setItem('vanity_products', JSON.stringify(products));
+  }, [products]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/auth/session').then(response => response.json() as Promise<{ authenticated?: boolean }>).then(data => {
+      if (active) setAuthenticated(Boolean(data?.authenticated));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('vanity_blacklist', JSON.stringify(blacklist));
+  }, [blacklist]);
+
+  useEffect(() => {
+    localStorage.setItem('vanity_routine_plan', JSON.stringify(routinePlan));
+  }, [routinePlan]);
+
+  useEffect(() => {
+    localStorage.setItem('vanity_looks', JSON.stringify(looks));
+  }, [looks]);
+
+  useEffect(() => {
+    localStorage.setItem('vanity_feedback_logs', JSON.stringify(feedbackLogs));
+  }, [feedbackLogs]);
+
+  useEffect(() => {
+    localStorage.setItem('vanity_cycle_phase', cyclePhase);
+  }, [cyclePhase]);
+
+  useEffect(() => {
+    localStorage.setItem('vanity_idol_profile', JSON.stringify(idolProfile));
+  }, [idolProfile]);
+
+  useEffect(() => {
+    localStorage.setItem('vanity_recycle_records', JSON.stringify(recycleRecords));
+  }, [recycleRecords]);
+
+  // High contrast effect
+  useEffect(() => {
+    if (isHighContrast) {
+      document.body.classList.add('accessibility-high-contrast');
+    } else {
+      document.body.classList.remove('accessibility-high-contrast');
+    }
+  }, [isHighContrast]);
+
+  // Gentle voice synthesis greeting with Idol awareness
+  const speakGentleGreeting = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const idolGreeting = idolProfile.style === 'idol' && idolProfile.idolName
+        ? `早上好！${idolProfile.idolName}也在好好照顾自己，今天想让自己轻松一点，还是精致一点？不用追求完美，健康通透便是最好的状态。`
+        : "早上好。今天想让自己轻松一点，还是精致一点？护肤是一场温和照顾自己的时刻，健康通透便是最好的状态。";
+
+      const utterance = new SpeechSynthesisUtterance(idolGreeting);
+      utterance.lang = 'zh-CN';
+      utterance.rate = 0.9;
+      window.speechSynthesis.speak(utterance);
+    } else {
+      alert("早上好！今天想让自己轻松一点，还是精致一点？护肤是一场照顾自己的温柔时刻。");
+    }
+  };
+
+  // 1. Add Product Handlers
+  const syncProduct = async (product: BeautyProduct) => {
+    if (!authenticated) {
+      setProducts(prev => prev.map(item => item.id === product.id ? { ...item, syncStatus: 'local' } : item));
+      return;
+    }
+    try {
+      const response = await fetch('/api/products/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ products: [product] }) });
+      if (!response.ok) throw new Error('sync failed');
+      setProducts(prev => prev.map(item => item.id === product.id ? { ...item, syncStatus: 'synced' } : item));
+    } catch {
+      setProducts(prev => prev.map(item => item.id === product.id ? { ...item, syncStatus: 'failed' } : item));
+    }
+  };
+
+  const enrichProductIngredients = async (product: BeautyProduct) => {
+    const querying = { ...product, ingredient_enrichment_status: 'querying' as const, ingredient_enrichment_error: undefined };
+    setProducts(prev => prev.map(item => item.id === product.id ? querying : item));
+    try {
+      const result = await enrichProduct(querying);
+      const returnedIngredients = Array.isArray(result.product?.ingredients) && result.product.ingredients.length ? result.product.ingredients : querying.ingredients;
+      const returnedRecords = Array.isArray(result.product?.ingredient_records) && result.product.ingredient_records.length ? result.product.ingredient_records : querying.ingredient_records;
+      const enriched = { ...querying, ...(result.product || {}), id: product.id, ingredients: returnedIngredients, ingredient_records: returnedRecords, ingredient_enrichment_status: result.status, ingredient_enrichment_source: result.source, ingredient_enrichment_source_url: result.sourceUrl, ingredient_enrichment_queried_at: new Date().toISOString(), ingredient_enrichment_error: result.error, syncStatus: 'pending' as const };
+      setProducts(prev => prev.map(item => item.id === product.id ? enriched : item));
+      return enriched;
+    } catch (error: any) {
+      const failed = { ...querying, ingredient_enrichment_status: 'failed' as const, ingredient_enrichment_queried_at: new Date().toISOString(), ingredient_enrichment_error: error?.message || '成分查询失败' };
+      setProducts(prev => prev.map(item => item.id === product.id ? failed : item));
+      return failed;
+    }
+  };
+
+  const handleAddProduct = (newProduct: BeautyProduct) => {
+    const pending = { ...newProduct, syncStatus: 'pending' as const, ingredient_enrichment_status: newProduct.ingredients.length ? 'needs_verification' as const : 'not_queried' as const };
+    setProducts(prev => [pending, ...prev]);
+    void enrichProductIngredients(pending).then(enriched => syncProduct(enriched));
+  };
+
+  const handleAddBatchProducts = (batch: BeautyProduct[]) => {
+    const pending = batch.map(product => ({ ...product, syncStatus: 'pending' as const, ingredient_enrichment_status: product.ingredients.length ? 'needs_verification' as const : 'not_queried' as const }));
+    setProducts(prev => [...pending, ...prev]);
+    pending.forEach(product => void enrichProductIngredients(product).then(enriched => syncProduct(enriched)));
+  };
+
+  const handleRetryProductEnrichment = (product: BeautyProduct) => {
+    void enrichProductIngredients({ ...product, ingredient_enrichment_status: 'not_queried', ingredient_enrichment_error: undefined }).then(enriched => syncProduct(enriched));
+  };
+
+  const handleAddToTodayPlan = (product: BeautyProduct): boolean => {
+    const existingItems = routinePlan.today_makeup_products || [];
+    if (existingItems.some(item => item.product_id === product.id)) return false;
+    const subcategory = `${product.subcategory} ${product.product_name}`;
+    const routine_type: 'morning' | 'evening' | 'both' = /防晒|洁面|爽肤|化妆水|喷雾/.test(subcategory)
+      ? 'morning'
+      : /A醇|视黄醇|酸|夜间|修护|面霜|晚霜/.test(subcategory) ? 'evening' : 'both';
+    const step = /洁面/.test(subcategory) ? '洁面' : /爽肤|化妆水|喷雾/.test(subcategory) ? '爽肤水' : /防晒/.test(subcategory) ? '防晒' : /面霜|乳霜|乳液|晚霜/.test(subcategory) ? '面霜' : '精华';
+    const careStep = {
+      step_number: 0,
+      category: step,
+      title: `${step} · ${product.brand}`,
+      product_id: product.id,
+      product_name: product.product_name,
+      brand: product.brand,
+      dosage: '按产品说明使用',
+      wait_time: '吸收后进行下一步',
+      instruction: '根据产品标签和个人耐受使用，出现不适请停止。'
+    };
+    setRoutinePlan(prev => {
+      const existing = prev.today_makeup_products || [];
+      const next = {
+        ...prev,
+        selected_product_ids: Array.from(new Set([...(prev.selected_product_ids || []), product.id])),
+        morning_steps: routine_type === 'evening' ? prev.morning_steps : [...(prev.morning_steps || []), careStep],
+        evening_steps: routine_type === 'morning' ? prev.evening_steps : [...(prev.evening_steps || []), careStep],
+        today_makeup_products: [...existing, { product_id: product.id, step, routine_type, source: 'vanity' as const, completed: false }],
+        sync_status: 'pending' as const
+      };
+      void fetch('/api/routine/today-products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: next, product }) })
+        .then(response => { if (!response.ok) throw new Error('sync failed'); setRoutinePlan(current => ({ ...current, sync_status: 'synced' })); })
+        .catch(() => setRoutinePlan(current => ({ ...current, sync_status: 'failed' })));
+      return next;
+    });
+    return true;
+  };
+
+  const handleUpdateRoutinePlan = (plan: RoutinePlan) => {
+    const pending = { ...plan, sync_status: 'pending' as const };
+    setRoutinePlan(pending);
+    void fetch('/api/routine/today-products', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: pending })
+    }).then(async response => {
+      const data = await response.json().catch(() => ({})) as any;
+      if (!response.ok || !data.success) throw new Error(data.error || '护肤流程保存失败');
+      setRoutinePlan(current => ({ ...current, sync_status: 'synced' }));
+    }).catch(error => {
+      console.error('Routine plan sync failed:', error);
+      setRoutinePlan(current => ({ ...current, sync_status: 'failed' }));
+    });
+  };
+
+  // 2. Update Product Handler
+  const handleUpdateProduct = (updated: BeautyProduct) => {
+    setProducts(prev => prev.map(p => p.id === updated.id ? updated : p));
+  };
+
+  // 3. Delete Product Handler
+  const handleDeleteProduct = (id: string) => {
+    setProducts(prev => prev.filter(p => p.id !== id));
+  };
+
+  // 4. Batch Operations
+  const handleBatchUpdateStatus = (ids: string[], newStatus: ProductStatus) => {
+    setProducts(prev => prev.map(p => ids.includes(p.id) ? { ...p, status: newStatus } : p));
+  };
+
+  const handleBatchUpdateListStatus = (ids: string[], newListStatus: ListRating) => {
+    setProducts(prev => prev.map(p => ids.includes(p.id) ? { ...p, list_status: newListStatus } : p));
+  };
+
+  const handleBatchDelete = (ids: string[]) => {
+    setProducts(prev => prev.filter(p => !ids.includes(p.id)));
+  };
+
+  // 5. Quick Recycle from empty bottle
+  const handleQuickRecycleUsedUp = (product: BeautyProduct) => {
+    const newRecord: CircularRecycleRecord = {
+      id: `rec_${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      station_name: '巴黎欧莱雅环球港旗舰店 · 绿色循环服务站',
+      type: 'glass_bottle',
+      item_name: `${product.brand} ${product.product_name} (空瓶投递)`,
+      points: 100,
+      status: 'verified'
+    };
+    setRecycleRecords(prev => [newRecord, ...prev]);
+    setActiveTab('circular');
+  };
+
+  // 6. Data Export (Privacy compliance from proposal)
+  const handleExportData = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+      products,
+      blacklist,
+      routinePlan,
+      looks,
+      feedbackLogs,
+      exported_at: new Date().toISOString()
+    }, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `my_vanity_backup_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  // 7. Stinging report -> moves to blacklist and extracts allergen
+  const handleReportStinging = (productId: string, productName: string) => {
+    const target = products.find(p => p.id === productId);
+    if (!target) return;
+
+    // Move product to blacklist
+    setProducts(prev => prev.map(p => {
+      if (p.id === productId) {
+        return {
+          ...p,
+          list_status: 'black',
+          user_notes: '使用后两颊刺痛灼热，已自动加入黑榜拦截。'
+        };
+      }
+      return p;
+    }));
+
+    // Extract potential allergen if not in blacklist
+    const extractedTag = target.allergen_tags[0] || `${productName} 所含高刺激成分`;
+    if (!blacklist.some(b => b.name === extractedTag)) {
+      setBlacklist(prev => [
+        {
+          name: extractedTag,
+          risk_level: 'high',
+          reason: `用户在使用「${productName}」时记录了明显刺痛灼热，系统自动提取拦截。`,
+          associated_products_count: 1
+        },
+        ...prev
+      ]);
+    }
+  };
+
+  // 8. Generate Routine Plan (3min/5min/full, onlyVanity)
+  const handleGeneratePlan = async (options: { timeBudget: '3min' | '5min' | 'full'; onlyVanity: boolean }) => {
+    setIsGeneratingPlan(true);
+    try {
+      const response = await fetch('/api/home/generate-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          timeBudget: options.timeBudget,
+          onlyVanity: options.onlyVanity,
+          vanityProducts: products.filter(p => p.list_status !== 'black'),
+          blacklist: blacklist.map(b => b.name),
+          skinCondition: cyclePhase === 'luteal' ? '黄体期偏油易爆痘' : cyclePhase === 'menstrual' ? '经期脆弱易泛红' : '偏干，局部微泛红'
+        })
+      });
+      const data = await response.json() as any;
+      if (data.success && data.plan) {
+        setRoutinePlan({
+          ...data.plan,
+          id: `plan_${Date.now()}`,
+          mode: 'routine',
+          time_budget: options.timeBudget,
+          only_vanity: options.onlyVanity,
+          created_at: new Date().toISOString()
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  };
+
+  // 9. Generate Special Scenario Routine
+  const handleGenerateSpecialScenario = async (scenario: string) => {
+    setIsGeneratingPlan(true);
+    try {
+      const response = await fetch('/api/home/generate-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          specialScenario: scenario,
+          timeBudget: '5min',
+          onlyVanity: true,
+          vanityProducts: products.filter(p => p.list_status !== 'black'),
+          blacklist: blacklist.map(b => b.name),
+          skinCondition: `${scenario}特殊应激状态`
+        })
+      });
+      const data = await response.json() as any;
+      if (data.success && data.plan) {
+        setRoutinePlan({
+          ...data.plan,
+          id: `plan_${Date.now()}`,
+          mode: 'special',
+          special_scenario: scenario,
+          time_budget: '5min',
+          only_vanity: true,
+          created_at: new Date().toISOString()
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  };
+
+  // 10. Generate Makeup Look
+  const handleGenerateAILook = async (params: { lookType: 'daily' | 'imitation' | 'cos'; referenceText?: string; referenceImage?: string; characterName?: string; userPhoto?: string }) => {
+    setIsGeneratingLook(true);
+    try {
+      const response = await fetch('/api/makeup/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lookType: params.lookType,
+          referenceDescription: params.referenceText,
+          referenceImage: params.referenceImage,
+          characterName: params.characterName,
+          vanityProducts: products.filter(p => p.category !== 'skincare' && p.list_status !== 'black')
+        })
+      });
+      const data = await response.json() as any;
+      if (data.success && data.look) {
+        const aiSteps = Array.isArray(data.look.steps) ? data.look.steps.map((step: any) => {
+          if (typeof step === 'string') return step.trim();
+          if (step && typeof step === 'object') return [step.name || step.title || step.step || '', step.detail || step.instruction || step.description || ''].filter(Boolean).join('：');
+          return '';
+        }).filter(Boolean) : [];
+        const generatedSteps = aiSteps.length >= 6 ? aiSteps : [
+          '妆前保湿与底妆：薄涂并按压均匀，保留原生皮肤纹理',
+          '眉毛：根据目标妆容调整眉形和眉峰，填补空隙',
+          '眼影打底：用浅色铺开眼窝，边缘向外晕染',
+          '眼影加深：按目标风格加深眼尾或眼褶，避免硬边',
+          '眼线与睫毛：沿真实眼型描绘，眼尾少量延伸并夹翘睫毛',
+          '腮红：少量点在苹果肌或颧骨，向太阳穴方向晕开',
+          '修容与高光：只强调鼻梁、面中和下颌需要的结构',
+          '唇妆：先勾勒唇形，再少量叠加颜色并检查边缘'
+        ];
+        const characterGuidance = params.lookType === 'cos' && params.characterName
+          ? `这是${params.characterName}的角色妆造。请严格遵循角色的视觉识别：冷白或角色设定肤色、角色标志性眼妆、眉形、唇色、冷暖色盘和舞台氛围；只改变妆容，不改变用户的脸型、五官比例、发型和背景。若角色是芙宁娜（Furina），使用枫丹舞台感、蓝白冷调、精致上挑眼线、蓝灰眼影、明亮高光和偏玫红唇色，避免普通日常妆。`
+          : '';
+        const layerDefinitions = generatedSteps.map((step: string, index: number) => {
+          const type = /底妆|妆前/.test(step) ? 'base' : /眉/.test(step) ? 'brows' : /眼影/.test(step) ? 'eyeshadow' : /眼线/.test(step) ? 'eyeliner' : /睫毛/.test(step) ? 'lashes' : /腮红/.test(step) ? 'blush' : /修容/.test(step) ? 'contour' : /高光/.test(step) ? 'highlight' : /唇/.test(step) ? 'lips' : 'fullLook';
+          const region = type === 'lips' ? '上下唇' : type === 'blush' ? '双侧颧骨/苹果肌' : type === 'eyeshadow' ? '双眼眼窝' : type === 'eyeliner' ? '上下眼线' : type === 'brows' ? '双眉' : type === 'lashes' ? '睫毛' : type === 'contour' ? '鼻梁/下颌' : type === 'highlight' ? '鼻梁/面中' : type === 'base' ? '全脸' : '面部整体';
+          return { id: `layer_${Date.now()}_${index}`, type, region, style: step, opacity: 80, feather: 12, enabled: true, stepIndex: index };
+        });
+        let renderedImage: string | undefined;
+        let renderedLayers: any[] = [];
+        let renderProvider: MakeupLook['render_provider'] = 'unavailable';
+        let renderStatus: MakeupLook['render_status'] = 'unavailable';
+        if (params.userPhoto) {
+          try {
+            const renderResponse = await fetch('/api/makeup/render', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                imageBase64: params.userPhoto,
+                prompt: `妆容类型：${params.lookType}。${characterGuidance}妆容方案：${data.look.description || data.look.title || ''}。步骤：${generatedSteps.join('；')}。${params.referenceImage ? '参考图中的角色妆面是重要视觉依据，请匹配其色盘和眼唇结构。' : ''}请保持人物身份和背景不变，只生成自然贴合面部的妆容效果图。`
+              })
+            });
+            const rendered = await renderResponse.json() as any;
+            if (rendered.success && rendered.imageUrl) { renderedImage = rendered.imageUrl; renderedLayers = Array.isArray(rendered.renderedLayers) ? rendered.renderedLayers : []; renderProvider = rendered.render_provider || 'doubao-seedream'; renderStatus = 'ready'; }
+            else renderStatus = 'failed';
+          } catch { renderStatus = 'failed'; }
+        }
+        const newLook: MakeupLook = {
+          ...data.look,
+          id: `look_${Date.now()}`,
+          type: params.lookType,
+          character_name: params.characterName || data.look.character_name,
+          reference_image: params.referenceImage,
+          generated_image: renderedImage,
+          render_provider: renderProvider,
+          render_status: renderStatus,
+          rendered_layers: renderedLayers,
+          layers: layerDefinitions as any,
+          steps: generatedSteps,
+          created_at: new Date().toISOString().split('T')[0]
+        };
+        setLooks(prev => [newLook, ...prev]);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGeneratingLook(false);
+    }
+  };
+
+  // 11. Rate Look to 3 Lists
+  const handleRateLookToList = (lookTitle: string, rating: 'red' | 'yellow' | 'black', reason: string) => {
+    // Save to feedback logs
+    const newFeedback: SkinFeedbackLog = {
+      id: `look_rating_${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      routine_type: 'morning',
+      feelings: [rating === 'red' ? '妆造巨适配' : rating === 'black' ? '妆面不适' : '效果一般'],
+      mood: '犒劳自己',
+      notes: `【妆造评价-${lookTitle}】${reason}`,
+      products_used_ids: []
+    };
+    setFeedbackLogs(prev => [newFeedback, ...prev]);
+  };
+
+  // Navigation to Idle Rescue from Discovery Mall
+  const handleNavigateToVanityRescue = (productName: string) => {
+    setActiveTab('vanity');
+    const match = products.find(p => p.product_name.includes(productName) || productName.includes(p.product_name));
+    if (match) {
+      setIdleRescueProduct(match);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FAF6F3] text-stone-900 flex flex-col font-sans antialiased">
+      {/* Top Navigation Bar matching the warm luxury aesthetic */}
+      <Navigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        isMobilePreview={isMobilePreview}
+        onToggleMobilePreview={() => setIsMobilePreview(!isMobilePreview)}
+        isHighContrast={isHighContrast}
+        onToggleHighContrast={() => setIsHighContrast(!isHighContrast)}
+        onQuickAddProduct={() => {
+          setAddModalMode('barcode');
+          setShowAddModal(true);
+        }}
+        onSpeakGreeting={speakGentleGreeting}
+      />
+
+      {/* Main Content Area */}
+      {!authenticated && <div className="mx-auto mt-2 max-w-2xl px-3"><div className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-center text-[11px] text-amber-900">当前为未登录临时模式：数据仅保存在本机，登录后才会同步到个人云端。</div></div>}
+      <main className="flex-1 w-full mx-auto px-0 sm:px-4 py-0 sm:py-6 flex justify-center items-start">
+        {isMobilePreview ? (
+          /* WeChat Mini-Program Experience */
+          <div className="w-full flex justify-center">
+
+            <WeChatFrame
+              currentTab={activeTab === 'api' ? 'home' : activeTab}
+              onTabChange={setActiveTab}
+            >
+              {activeTab === 'home' && (
+                <HomeScreen
+                  onNavigate={setActiveTab}
+                  onOpenAddModal={(m) => {
+                    setAddModalMode(m || 'barcode');
+                    setShowAddModal(true);
+                  }}
+                  onOpenRoutineReminder={(t) => {
+                    setGlobalReminderType(t);
+                    setShowGlobalReminderModal(true);
+                  }}
+                  reminderSettings={reminderSettings}
+                  products={products}
+                />
+              )}
+
+              {activeTab === 'vanity' && (
+                <VanityScreen
+                  products={products}
+                  onOpenAddModal={() => {
+                    setAddModalMode('barcode');
+                    setShowAddModal(true);
+                  }}
+                  onSelectProductForDetail={(p) => setSelectedProductForDetail(p)}
+                  onOpenCompatibility={(selected) => {
+                    setCompatibilityTargetProducts(selected);
+                    setShowCompatibilityModal(true);
+                  }}
+                  onAddToTodayPlan={handleAddToTodayPlan}
+                  onRetryProductEnrichment={handleRetryProductEnrichment}
+                />
+              )}
+
+              {activeTab === 'routine' && (
+                <CarePlanScreen
+                  routinePlan={routinePlan}
+                  products={products}
+                  onBack={() => setActiveTab('home')}
+                  onGeneratePlan={() => handleGeneratePlan({ timeBudget: '5min', onlyVanity: true })}
+                  isGenerating={isGeneratingPlan}
+                  reminderSettings={reminderSettings}
+                  onUpdateReminderSettings={setReminderSettings}
+                  onUpdatePlan={handleUpdateRoutinePlan}
+                  onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
+                />
+              )}
+
+              {activeTab === 'makeup' && (
+                <MakeupScreen
+                  products={products}
+                  looks={looks}
+                  onGenerateLook={handleGenerateAILook}
+                  onRateLook={handleRateLookToList}
+                  isGenerating={isGeneratingLook}
+                  authenticated={authenticated}
+                />
+              )}
+
+              {activeTab === 'mall' && (
+                <MallScreen
+                  mallItems={mallItems}
+                  vanityProducts={products}
+                  onNavigateToVanityRescue={handleNavigateToVanityRescue}
+                />
+              )}
+
+              {activeTab === 'circular' && (
+                <CircularScreen
+                  recycleRecords={recycleRecords}
+                  onAddRecycleRecord={(rec) => setRecycleRecords(prev => [rec, ...prev])}
+                />
+              )}
+
+              {activeTab === 'memory' && (
+                <ProfileScreen
+                  products={products}
+                  blacklist={blacklist}
+                  feedbackLogs={feedbackLogs}
+                  cyclePhase={cyclePhase}
+                  onUpdateCyclePhase={setCyclePhase}
+                  idolProfile={idolProfile}
+                  onUpdateIdolProfile={setIdolProfile}
+                  onAddBlacklistIngredient={(item) => setBlacklist(prev => [item, ...prev])}
+                  onRemoveBlacklistIngredient={(name) => setBlacklist(prev => prev.filter(b => b.name !== name))}
+                  onUpdateProductListStatus={(productId, status) => setProducts(prev => prev.map(p => p.id === productId ? { ...p, list_status: status } : p))}
+                  onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
+                  onExportData={handleExportData}
+                  onShowPrivacyModal={() => setShowPrivacyPolicyModal(true)}
+                />
+              )}
+              {activeTab === 'api' && <ApiIntegrationPanel />}
+            </WeChatFrame>
+          </div>
+        ) : (
+          /* Responsive Unified Luxury View */
+          <div className="w-full max-w-2xl mx-auto bg-white/70 backdrop-blur-md rounded-3xl p-4 sm:p-6 shadow-sm border border-[#EDE5DE]">
+            {activeTab === 'home' && (
+              <HomeScreen
+                onNavigate={setActiveTab}
+                onOpenAddModal={(m) => {
+                  setAddModalMode(m || 'barcode');
+                  setShowAddModal(true);
+                }}
+                onOpenRoutineReminder={(t) => {
+                  setGlobalReminderType(t);
+                  setShowGlobalReminderModal(true);
+                }}
+                reminderSettings={reminderSettings}
+                products={products}
+              />
+            )}
+
+            {activeTab === 'vanity' && (
+              <VanityScreen
+                products={products}
+                onOpenAddModal={() => {
+                  setAddModalMode('barcode');
+                  setShowAddModal(true);
+                }}
+                onSelectProductForDetail={(p) => setSelectedProductForDetail(p)}
+                onOpenCompatibility={(selected) => {
+                  setCompatibilityTargetProducts(selected);
+                  setShowCompatibilityModal(true);
+                }}
+                onAddToTodayPlan={handleAddToTodayPlan}
+                onRetryProductEnrichment={handleRetryProductEnrichment}
+              />
+            )}
+
+            {activeTab === 'routine' && (
+              <CarePlanScreen
+                routinePlan={routinePlan}
+                products={products}
+                onBack={() => setActiveTab('home')}
+                onGeneratePlan={() => handleGeneratePlan({ timeBudget: '5min', onlyVanity: true })}
+                isGenerating={isGeneratingPlan}
+                reminderSettings={reminderSettings}
+                onUpdateReminderSettings={setReminderSettings}
+                  onUpdatePlan={handleUpdateRoutinePlan}
+                onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
+              />
+            )}
+
+            {activeTab === 'makeup' && (
+              <MakeupScreen
+                products={products}
+                looks={looks}
+                onGenerateLook={handleGenerateAILook}
+                onRateLook={handleRateLookToList}
+                isGenerating={isGeneratingLook}
+                authenticated={authenticated}
+              />
+            )}
+
+            {activeTab === 'mall' && (
+              <MallScreen
+                mallItems={mallItems}
+                vanityProducts={products}
+                onNavigateToVanityRescue={handleNavigateToVanityRescue}
+              />
+            )}
+
+            {activeTab === 'circular' && (
+              <CircularScreen
+                recycleRecords={recycleRecords}
+                onAddRecycleRecord={(rec) => setRecycleRecords(prev => [rec, ...prev])}
+              />
+            )}
+
+            {activeTab === 'memory' && (
+              <ProfileScreen
+                products={products}
+                blacklist={blacklist}
+                feedbackLogs={feedbackLogs}
+                cyclePhase={cyclePhase}
+                onUpdateCyclePhase={setCyclePhase}
+                idolProfile={idolProfile}
+                onUpdateIdolProfile={setIdolProfile}
+                onAddBlacklistIngredient={(item) => setBlacklist(prev => [item, ...prev])}
+                onRemoveBlacklistIngredient={(name) => setBlacklist(prev => prev.filter(b => b.name !== name))}
+                onUpdateProductListStatus={(productId, status) => setProducts(prev => prev.map(p => p.id === productId ? { ...p, list_status: status } : p))}
+                onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
+                onExportData={handleExportData}
+                onShowPrivacyModal={() => setShowPrivacyPolicyModal(true)}
+              />
+            )}
+            {activeTab === 'api' && <ApiIntegrationPanel />}
+          </div>
+        )}
+      </main>
+
+      {/* Warm Luxury Footer */}
+      <footer className="border-t border-[#EDE5DE] bg-[#FAF6F3] py-4 px-6 text-center text-xs text-stone-500">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p>© 2026 我的化妆台 · AI 美妆护肤伴侣. 陪伴取悦自我的每一天</p>
+          <div className="flex items-center gap-4 text-[11px] text-stone-600">
+            <button
+              onClick={() => setShowPrivacyPolicyModal(true)}
+              className="hover:text-stone-900 underline underline-offset-2"
+            >
+              隐私保护与医疗免责声明
+            </button>
+            <button
+              onClick={handleExportData}
+              className="hover:text-stone-900 underline underline-offset-2"
+            >
+              导出全量数据 (JSON)
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      {/* Mobile Tab Bar on Small Screens when not in WeChat frame */}
+      {!isMobilePreview && (
+        <div className="lg:hidden">
+          <MobileTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        </div>
+      )}
+
+      {/* Global Modals */}
+      {showAddModal && (
+        <AddProductModal
+          initialMode={addModalMode}
+          onClose={() => setShowAddModal(false)}
+          onAddProduct={handleAddProduct}
+          onAddBatchProducts={handleAddBatchProducts}
+        />
+      )}
+
+      {showCompatibilityModal && (
+        <CompatibilityModal
+          initialProducts={compatibilityTargetProducts}
+          allProducts={products}
+          blacklist={blacklist}
+          onClose={() => setShowCompatibilityModal(false)}
+        />
+      )}
+
+      {idleRescueProduct && (
+        <IdleRescueModal
+          product={idleRescueProduct}
+          onClose={() => setIdleRescueProduct(null)}
+          onSaveRepurposeIdea={(productId, idea) => {
+            setProducts(prev => prev.map(p => {
+              if (p.id === productId) {
+                return {
+                  ...p,
+                  repurpose_ideas: [...(p.repurpose_ideas || []), idea]
+                };
+              }
+              return p;
+            }));
+          }}
+        />
+      )}
+
+      {selectedProductForDetail && (
+        <ProductDetailModal
+          product={selectedProductForDetail}
+          onClose={() => setSelectedProductForDetail(null)}
+          onUpdate={handleUpdateProduct}
+          onDelete={handleDeleteProduct}
+          onOpenCompatibility={(p) => {
+            setCompatibilityTargetProducts([p]);
+            setShowCompatibilityModal(true);
+          }}
+          onOpenIdleRescue={(p) => setIdleRescueProduct(p)}
+        />
+      )}
+
+      {/* Privacy and Medical Disclaimer Modal */}
+      {showPrivacyPolicyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-stone-200 space-y-4">
+            <h3 className="text-base font-serif font-semibold text-stone-900">
+              数据隐私承诺与医疗免责声明
+            </h3>
+            <div className="space-y-3 text-xs text-stone-600 leading-relaxed max-h-72 overflow-y-auto">
+              <div className="p-3 bg-stone-50 rounded-xl">
+                <strong className="text-stone-900 block mb-1">1. 数据完全自主私有：</strong>
+                用户录入化妆台的全部美妆品牌、批号、个人日记与肤质敏感档案均归属于用户个人。系统绝不向任何外部品牌或广告联盟转让敏感数据。支持一键导出备份及一键清空。
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl text-amber-950">
+                <strong className="block mb-1">2. 医疗健康免责声明：</strong>
+                本应用提供的 AI 护理计划、成分搭配排查、闲置拯救建议及肤质分析属于日常美容护理与常识性指引，绝不构成任何专业医疗诊断、处方或临床治疗方案。若遇急性皮炎、大面积破溃、严重痤疮或持续过敏，请立即前往正规三甲医院皮肤科就医。
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end pt-2 border-t border-stone-100">
+              <button
+                onClick={() => setShowPrivacyPolicyModal(false)}
+                className="px-5 py-2 bg-stone-900 text-white rounded-xl text-xs font-medium hover:bg-stone-800"
+              >
+                我已阅读并知悉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Routine Push Notification & Core Advice Modal */}
+      <RoutinePushReminderModal
+        isOpen={showGlobalReminderModal}
+        onClose={() => setShowGlobalReminderModal(false)}
+        type={globalReminderType}
+        reminderSettings={reminderSettings}
+        onUpdateSettings={setReminderSettings}
+        onStartRoutine={(type) => {
+          setActiveTab('routine');
+        }}
+        products={products}
+      />
+    </div>
+  );
+}

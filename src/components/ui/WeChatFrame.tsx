@@ -12,6 +12,7 @@ import {
   Sparkles,
   ShieldAlert
 } from 'lucide-react';
+import { UserProfile } from '../../types/auth';
 
 export type MiniProgramTab = 'home' | 'vanity' | 'routine' | 'makeup' | 'memory' | 'mall' | 'circular';
 
@@ -19,12 +20,16 @@ interface WeChatFrameProps {
   currentTab: MiniProgramTab;
   onTabChange: (tab: MiniProgramTab) => void;
   children: React.ReactNode;
+  currentUser?: UserProfile | null;
+  onOpenLogin?: () => void;
 }
 
 export const WeChatFrame: React.FC<WeChatFrameProps> = ({
   currentTab,
   onTabChange,
-  children
+  children,
+  currentUser,
+  onOpenLogin
 }) => {
 
   return (
@@ -60,8 +65,18 @@ export const WeChatFrame: React.FC<WeChatFrameProps> = ({
           </div>
         </div>
 
-        {/* WeChat Iconic Capsule Button (••• | ⨀) */}
-        <div className="flex items-center bg-white/90 border border-stone-300/60 rounded-full py-0.5 px-2.5 shadow-2xs gap-2">
+        {/* Account status + WeChat Iconic Capsule Button */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            className="flex items-center gap-1 rounded-full bg-white/90 border border-stone-300/60 px-2 py-1 text-[10px] text-stone-700 shadow-2xs"
+            title={currentUser?.isGuest ? '登录或注册' : '账号中心'}
+          >
+            {currentUser?.avatar ? <img src={currentUser.avatar} alt="" className="w-4 h-4 rounded-full object-cover" /> : <User className="w-3.5 h-3.5" />}
+            <span className="max-w-12 truncate">{currentUser?.isGuest ? '登录' : (currentUser?.nickname || '我的账号')}</span>
+          </button>
+          <div className="flex items-center bg-white/90 border border-stone-300/60 rounded-full py-0.5 px-2.5 shadow-2xs gap-2">
           <button 
             type="button"
             className="text-stone-700 hover:text-stone-900 transition-colors" 
@@ -78,6 +93,7 @@ export const WeChatFrame: React.FC<WeChatFrameProps> = ({
           >
             <Circle className="w-3 h-3 stroke-[3]" />
           </button>
+          </div>
         </div>
       </div>
 

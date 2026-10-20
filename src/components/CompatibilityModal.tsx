@@ -11,6 +11,7 @@ import {
   Layers
 } from 'lucide-react';
 import { BeautyProduct, BlacklistIngredient } from '../types/beauty';
+import { enrichProduct } from '../services/productEnrichmentService';
 
 interface CompatibilityModalProps {
   initialProducts: BeautyProduct[];
@@ -26,7 +27,11 @@ export const CompatibilityModal: React.FC<CompatibilityModalProps> = ({
   onClose
 }) => {
   const [selectedProducts, setSelectedProducts] = useState<BeautyProduct[]>(() => {
-    if (initialProducts.length > 0) return initialProducts;
+    if (initialProducts.length > 0) {
+      const seed = initialProducts.slice(0, 5);
+      const supplements = allProducts.filter(product => !seed.some(selected => selected.id === product.id) && (product.category === 'skincare' || product.category === 'base')).slice(0, Math.max(0, 2 - seed.length));
+      return [...seed, ...supplements];
+    }
     // Default pick Retinol cream + Glycolic Acid serum to immediately demonstrate the competition narrative!
     const retinol = allProducts.find(p => p.product_name.includes('A醇'));
     const acid = allProducts.find(p => p.product_name.includes('果酸'));
@@ -45,20 +50,32 @@ export const CompatibilityModal: React.FC<CompatibilityModalProps> = ({
     }
     setIsLoading(true);
     try {
+      const hydratedProducts = await Promise.all(productsToCheck.map(async product => {
+        if ((product.ingredients?.length || 0) >= 2 || product.ingredient_enrichment_status === 'confirmed') return product;
+        try {
+          const result = await enrichProduct(product);
+          return { ...product, ...(result.product || {}), ingredients: result.product?.ingredients?.length ? result.product.ingredients : product.ingredients };
+        } catch {
+          return product;
+        }
+      }));
       const response = await fetch('/api/compatibility/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          products: productsToCheck,
+          products: hydratedProducts,
           blacklist: blacklist.map(b => b.name)
         })
       });
-      const data = await response.json() as any;
+      const data: any = await response.json();
       if (data.success && data.report) {
         setReport(data.report);
+      } else {
+        setReport({ safety_level: 'warning', summary: data.error || '成分分析服务暂时不可用，请稍后重试。', conflicts: [], recommended_order: [], disclaimer: '护肤搭配建议，不构成医疗诊断。' });
       }
     } catch (e) {
-      console.error(e);
+      console.error('Compatibility check failed:', e);
+      setReport({ safety_level: 'warning', summary: '成分分析服务暂时不可用，请检查网络或稍后重试。', conflicts: [], recommended_order: [], disclaimer: '护肤搭配建议，不构成医疗诊断。' });
     } finally {
       setIsLoading(false);
     }

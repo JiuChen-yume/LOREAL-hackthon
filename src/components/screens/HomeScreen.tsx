@@ -19,7 +19,12 @@ import {
   Recycle,
   ShieldCheck,
   Droplets,
-  CloudSun
+  CloudSun,
+  Camera,
+  Upload,
+  Wand2,
+  RefreshCw,
+  User
 } from 'lucide-react';
 import { 
   homePortraitImg, 
@@ -29,6 +34,7 @@ import {
   circularBottleEcoImg 
 } from '../../data/mockData';
 import { RoutineReminderSettings, BeautyProduct } from '../../types/beauty';
+import { UserProfile } from '../../types/auth';
 
 interface HomeScreenProps {
   onNavigate: (tab: 'home' | 'vanity' | 'routine' | 'makeup' | 'memory' | 'mall' | 'circular') => void;
@@ -36,6 +42,8 @@ interface HomeScreenProps {
   onOpenRoutineReminder?: (type: 'morning' | 'evening') => void;
   reminderSettings?: RoutineReminderSettings;
   products?: BeautyProduct[];
+  currentUser?: UserProfile | null;
+  onOpenLogin?: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -43,7 +51,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenAddModal,
   onOpenRoutineReminder,
   reminderSettings,
-  products = []
+  products = [],
+  currentUser,
+  onOpenLogin
 }) => {
   const expiringCount = products.filter(p => p.status === 'expiring_soon').length || 2;
   const totalProductCount = products.length || 12;
@@ -63,6 +73,76 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
   const [showWeatherDetailModal, setShowWeatherDetailModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Custom Cartoon Virtual Avatar State
+  const [customAvatarUrl, setCustomAvatarUrl] = useState<string>(() => {
+    return localStorage.getItem('vanity_custom_avatar') || '';
+  });
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [avatarUserPhoto, setAvatarUserPhoto] = useState<string | null>(null);
+  const [avatarStyle, setAvatarStyle] = useState<string>('disney_3d');
+  const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
+  const [generatedAvatarPreview, setGeneratedAvatarPreview] = useState<string | null>(null);
+  const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const handleAvatarPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setAvatarUserPhoto(event.target.result as string);
+          showToast('自拍照片已载入，请选择风格并生成卡通形象');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleGenerateCartoonAvatar = async (mockImage?: string) => {
+    const photoToUse = mockImage || avatarUserPhoto || homePortraitImg;
+    setIsGeneratingAvatar(true);
+    try {
+      const response = await fetch('/api/avatar/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: photoToUse,
+          style: avatarStyle
+        })
+      });
+      const data: any = await response.json();
+      if (data.success && data.imageUrl) {
+        setGeneratedAvatarPreview(data.imageUrl);
+        showToast('卡通虚拟形象生成成功！点击应用即可生效');
+      } else {
+        showToast('生成失败，请重试');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('网络请求异常，请检查连接');
+    } finally {
+      setIsGeneratingAvatar(false);
+    }
+  };
+
+  const handleApplyCustomAvatar = () => {
+    if (generatedAvatarPreview) {
+      setCustomAvatarUrl(generatedAvatarPreview);
+      localStorage.setItem('vanity_custom_avatar', generatedAvatarPreview);
+      setShowAvatarModal(false);
+      showToast('已成功应用我的专属卡通形象！');
+    }
+  };
+
+  const handleResetToDefaultAvatar = () => {
+    setCustomAvatarUrl('');
+    localStorage.removeItem('vanity_custom_avatar');
+    setGeneratedAvatarPreview(null);
+    setAvatarUserPhoto(null);
+    setShowAvatarModal(false);
+    showToast('已还原为默认温润真人美妆形象');
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -158,13 +238,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <div className="relative z-10 max-w-[210px] space-y-2">
           <div className="flex items-center gap-1.5">
             <h2 className="text-xl sm:text-2xl font-bold font-serif text-stone-900 tracking-tight">
-              早上好，
+              早上好，{currentUser?.nickname || '晚晚'}
             </h2>
             <span className="text-amber-500 text-xl">🔆</span>
           </div>
           <p className="text-xs text-stone-600 font-medium leading-relaxed">
             今天想让自己轻松一点，<br />还是精致一点？
           </p>
+          {currentUser?.isGuest && (
+            <button type="button" onClick={onOpenLogin} className="rounded-full border border-[#E5C9BE] bg-white/75 px-3 py-1 text-[10px] text-[#962F43] hover:bg-white">
+              登录后开启云端备份与专属定制
+            </button>
+          )}
 
           {/* Weather & UV Info - Clickable for details */}
           <div 
@@ -185,16 +270,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
 
-        {/* Right Portrait with handwritten quote */}
-        <div className="absolute right-0 top-0 bottom-0 w-44 sm:w-52 pointer-events-none">
+        {/* Right Portrait with interactive cartoon avatar customizer */}
+        <div 
+          onClick={() => setShowAvatarModal(true)}
+          className="absolute right-0 top-0 bottom-0 w-44 sm:w-52 cursor-pointer group transition-all"
+          title="点击定制我的专属 AI 卡通虚拟形象"
+        >
           <img 
-            src={homePortraitImg} 
-            alt="AI 美妆陪伴" 
-            className="w-full h-full object-cover object-top mask-linear-gradient"
+            src={customAvatarUrl || homePortraitImg} 
+            alt="AI 美妆陪伴形象" 
+            className="w-full h-full object-cover object-top mask-linear-gradient group-hover:scale-103 transition-transform duration-500"
           />
+
+          {/* Floating trigger button / tag */}
+          <div className="absolute bottom-3 right-3 z-10 flex flex-col items-end gap-1">
+            <span className="px-2.5 py-1 rounded-full bg-white/90 backdrop-blur-md border border-[#F5DCD5] text-[10px] font-bold text-[#962F43] shadow-xs flex items-center gap-1 group-hover:bg-[#962F43] group-hover:text-white transition-all">
+              <Wand2 className="w-3 h-3 text-amber-500 group-hover:text-amber-300" />
+              <span>{customAvatarUrl ? '切换卡通形象' : '定制卡通分身'}</span>
+            </span>
+            {customAvatarUrl && (
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-semibold shadow-xs">
+                AI 专属虚拟形象
+              </span>
+            )}
+          </div>
+
           <div className="absolute top-4 right-3 text-right max-w-[120px] pointer-events-none">
             <p className="text-[10px] font-serif text-rose-800/80 italic leading-tight drop-shadow-xs">
-              美丽，是一种持续的自我陪伴 ♡
+              {customAvatarUrl ? '我的专属陪伴虚拟分身 ♡' : '美丽，是一种持续的自我陪伴 ♡'}
             </p>
           </div>
         </div>
@@ -386,7 +489,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <Palette className="w-5 h-5 stroke-[2]" />
           </div>
           <span className="text-xs font-bold text-stone-900">妆造工作室</span>
-          <span className="text-[9px] text-stone-400 mt-0.5">3D 试妆镜 &gt;</span>
+          <span className="text-[9px] text-stone-400 mt-0.5">AI 试妆工作台 &gt;</span>
         </button>
 
         <button
@@ -413,7 +516,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </div>
 
       {/* 6. 美丽循环 Bottom Banner */}
-      <div className="rounded-3xl bg-gradient-to-r from-[#FDF0EC] via-[#FCEAE6] to-[#FDE8E4] p-3.5 border border-[#F3DDD7] shadow-xs flex items-center justify-between gap-3 overflow-hidden relative">
+      <div className="rounded-3xl bg-gradient-to-r from-[#FDF0EC] via-[#FCEAE6] to-[#FDE8E4] p-3.5 border border-[#FAIDD7] shadow-xs flex items-center justify-between gap-3 overflow-hidden relative">
         <div className="flex items-center gap-3 relative z-10">
           <div className="w-10 h-10 rounded-full bg-white/90 border border-rose-200/60 flex items-center justify-center text-[#962F43] shrink-0 shadow-2xs">
             <Sprout className="w-5 h-5" />
@@ -572,6 +675,210 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             >
               已掌握防护重点
             </button>
+          </div>
+        </div>
+      )}
+      {/* 5. Custom Cartoon Avatar Generation Modal */}
+      {showAvatarModal && (
+        <div className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 space-y-4 shadow-2xl border border-stone-200 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-[#962F43]">
+                  <Wand2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold font-serif text-stone-900">
+                    定制我的专属卡通虚拟形象
+                  </h3>
+                  <p className="text-[10px] text-stone-500">
+                    上传照片后通过生图 AI 提取五官神态，生成专属二次元/Q版形象
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAvatarModal(false)} 
+                className="text-stone-400 hover:text-stone-700 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Hidden Input for user photo */}
+            <input 
+              type="file" 
+              ref={avatarInputRef} 
+              accept="image/*" 
+              onChange={handleAvatarPhotoUpload} 
+              className="hidden" 
+            />
+
+            {/* Photo Upload Zone */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-stone-800 block">
+                1. 上传我的正面照片 / 自拍底卡
+              </label>
+
+              <div className="p-3.5 border-2 border-dashed border-[#F5DCD5] rounded-2xl bg-[#FFF9F7] flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-white shadow-xs shrink-0 bg-rose-100 flex items-center justify-center">
+                    {avatarUserPhoto ? (
+                      <img src={avatarUserPhoto} alt="自拍底卡" className="w-full h-full object-cover" />
+                    ) : (
+                      <Camera className="w-6 h-6 text-rose-400" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-stone-900">
+                      {avatarUserPhoto ? '自拍照片已载入' : '请选择自拍照片'}
+                    </div>
+                    <div className="text-[10px] text-stone-500 mt-0.5">
+                      建议正面免冠、五官清晰、光线均匀
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-full bg-[#962F43] hover:bg-[#832637] text-white text-[11px] font-bold shadow-2xs flex items-center gap-1 transition-all"
+                  >
+                    <Upload className="w-3 h-3" />
+                    <span>{avatarUserPhoto ? '更换照片' : '上传照片'}</span>
+                  </button>
+                  {!avatarUserPhoto && (
+                    <button
+                      type="button"
+                      onClick={() => setAvatarUserPhoto(homePortraitImg)}
+                      className="px-2 py-1 rounded-full text-[10px] bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors"
+                    >
+                      使用示例底卡
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Cartoon Style Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-stone-800 block">
+                2. 选择卡通生图艺术风格
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'disney_3d', name: 'AI 迪士尼 Q版', desc: '灵动大眼 · 暖杏高级AI' },
+                  { id: 'anime_watercolor', name: '日系动漫水彩', desc: '新海诚唯美微光 · 清透感' },
+                  { id: 'clay_cute', name: '治愈手作粘土', desc: '软萌粘土捏脸 · 粉扑腮红' },
+                  { id: 'cyber_mecha', name: '赛博潮酷分身', desc: '极光霓虹妆 · 未来科技感' }
+                ].map(st => {
+                  const isSelected = avatarStyle === st.id;
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => setAvatarStyle(st.id)}
+                      className={`p-2.5 rounded-2xl border text-left transition-all ${
+                        isSelected 
+                          ? 'border-[#962F43] bg-rose-50/70 shadow-2xs ring-1 ring-[#962F43]/30' 
+                          : 'border-stone-200 hover:border-stone-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-bold ${isSelected ? 'text-[#962F43]' : 'text-stone-900'}`}>
+                          {st.name}
+                        </span>
+                        {isSelected && <Sparkles className="w-3 h-3 text-[#962F43]" />}
+                      </div>
+                      <p className="text-[10px] text-stone-500 mt-0.5 line-clamp-1">
+                        {st.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Generate Trigger Button */}
+            <button
+              type="button"
+              disabled={isGeneratingAvatar}
+              onClick={() => handleGenerateCartoonAvatar()}
+              className="w-full py-2.5 bg-gradient-to-r from-[#962F43] via-[#B2382D] to-[#CF3F57] hover:opacity-95 text-white rounded-2xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition-all active:scale-98"
+            >
+              {isGeneratingAvatar ? (
+                <>
+                  <Sparkles className="w-4 h-4 animate-spin text-amber-300" />
+                  <span>生图 AI 正在构图并渲染卡通形象...</span>
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-4 h-4 text-amber-300" />
+                  <span>链接生图 AI · 生成专属卡通虚拟形象</span>
+                </>
+              )}
+            </button>
+
+            {/* Generated Preview Card */}
+            {generatedAvatarPreview && (
+              <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200 space-y-3 animate-in fade-in">
+                <div className="flex items-center gap-3">
+                  <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-white shadow-md bg-white shrink-0">
+                    <img 
+                      src={generatedAvatarPreview} 
+                      alt="AI 生成的卡通分身" 
+                      className="w-full h-full object-cover" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-stone-900">生成效果预览</span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-bold">
+                        AI生图就绪
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-stone-500 leading-tight">
+                      已提取五官比例与特色腮红，点击下方即可应用为主页陪伴形象。
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleApplyCustomAvatar}
+                    className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1 transition-all"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>应用为主页形象</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateCartoonAvatar()}
+                    className="px-3 py-2 rounded-xl border border-stone-200 hover:bg-stone-100 text-stone-700 text-xs font-medium transition-colors"
+                  >
+                    换一张
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Default Avatar Reset option if custom is currently applied */}
+            {customAvatarUrl && (
+              <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-xs text-stone-500">
+                <span>当前已启用个性卡通形象</span>
+                <button
+                  type="button"
+                  onClick={handleResetToDefaultAvatar}
+                  className="text-stone-400 hover:text-stone-800 hover:underline text-[11px] flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>还原默认形象</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

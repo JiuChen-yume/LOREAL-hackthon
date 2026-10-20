@@ -1,0 +1,32 @@
+name: Bug report
+description: 报告一个可以复现的问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请不要在 Issue 中粘贴 API Key、Token、用户照片或完整 Base64。
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请按顺序写出操作步骤和实际结果。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      placeholder: Chrome 128 / Windows / 本地或 Cloudflare
+  - type: textarea
+    id: logs
+    attributes:
+      label: 脱敏日志
+      description: 请移除密钥、图片内容和个人信息后再粘贴。

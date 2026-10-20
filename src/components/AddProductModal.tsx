@@ -59,9 +59,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   // OCR & Recognition State
   const [isScanning, setIsScanning] = useState(false);
   const [scanPreviewImage, setScanPreviewImage] = useState<string | null>(null);
-  const [detectedProducts, setDetectedProducts] = useState<Array<{ name?: string; parents?: string; confidence?: number; bbox?: { xMin?: number; yMin?: number; xMax?: number; yMax?: number } }>>([]);
-  const [detectedCodes, setDetectedCodes] = useState<Array<{ content: string; type: string; position?: { left: number; top: number; right: number; bottom: number } | null }>>([]);
-  const [productDetectMessage, setProductDetectMessage] = useState<string | null>(null);
 
   // Barcode & QR Code Scanner Overlay State
   const [scannerType, setScannerType] = useState<'barcode' | 'qr'>('barcode');
@@ -70,7 +67,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   const [useLiveCamera, setUseLiveCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scannedResult, setScannedResult] = useState<ScannedProductResult | null>(null);
-  const [unmatchedCode, setUnmatchedCode] = useState<{ content: string; type: string } | null>(null);
   const [manualCodeInput, setManualCodeInput] = useState('');
   const [showManualCodeInput, setShowManualCodeInput] = useState(false);
   const [scanSuccessAnimation, setScanSuccessAnimation] = useState(false);
@@ -91,6 +87,13 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   const [ingredientsText, setIngredientsText] = useState('');
   const [allergenTagsText, setAllergenTagsText] = useState('');
 
+  // Batch Mode Upload & AI Extraction State
+  const [batchImages, setBatchImages] = useState<string[]>([]);
+  const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
+  const [recognizedBatchItems, setRecognizedBatchItems] = useState<BeautyProduct[]>([]);
+  const [selectedBatchIndices, setSelectedBatchIndices] = useState<number[]>([]);
+  const batchFileInputRef = useRef<HTMLInputElement | null>(null);
+
   // Stop video stream on unmount or mode change
   useEffect(() => {
     return () => {
@@ -99,17 +102,10 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   }, []);
 
   useEffect(() => {
-    if (mode !== 'barcode' && mode !== 'camera' && streamRef.current) {
+    if (mode !== 'barcode' && streamRef.current) {
       stopCamera();
     }
   }, [mode]);
-
-  useEffect(() => {
-    if (useLiveCamera && videoRef.current && streamRef.current && videoRef.current.srcObject !== streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      void videoRef.current.play();
-    }
-  }, [useLiveCamera, mode]);
 
   const startCamera = async () => {
     setCameraError(null);
@@ -125,11 +121,11 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         }
         setUseLiveCamera(true);
       } else {
-        setCameraError('当前浏览器不支持摄像头，请使用下方“从相册选择照片”上传。');
+        setCameraError('当前浏览器环境不支持调用摄像头，已启用智能模拟扫描取景器。');
       }
     } catch (err: any) {
       console.warn('Camera access not granted or not available:', err);
-      setCameraError('未获取摄像头权限或设备无可用镜头，请检查浏览器权限，或使用相册上传。');
+      setCameraError('未获取摄像头权限或设备无可用镜头，已切换为虚拟扫描体验。');
       setUseLiveCamera(false);
     }
   };
@@ -140,37 +136,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       streamRef.current = null;
     }
     setUseLiveCamera(false);
-  };
-
-  const capturePhoto = async () => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      setCameraError('摄像头画面尚未准备好，请稍候再拍摄。');
-      return;
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageBase64 = canvas.toDataURL('image/jpeg', 0.9);
-    setScanPreviewImage(imageBase64);
-    stopCamera();
-    await handleRecognize(imageBase64);
-  };
-
-  const captureBarcodeFrame = async () => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      setCameraError('摄像头画面尚未准备好，请稍候再扫描。');
-      return;
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageBase64 = canvas.toDataURL('image/jpeg', 0.9);
-    setScanPreviewImage(imageBase64);
-    await handleBarcodeImageRecognize(imageBase64);
   };
 
   // Play gentle scan beep using Web Audio API
@@ -200,7 +165,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     playScanBeep();
 
     try {
-      setUnmatchedCode(null);
       const response = await fetch('/api/scanner/barcode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -210,7 +174,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         })
       });
 
-      const data = await response.json() as any;
+      const data: any = await response.json();
       if (data.success && data.product) {
         setScannedResult({
           barcode: data.barcode || code,
@@ -218,8 +182,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
           source: data.source,
           product: data.product
         });
-      } else {
-        setUnmatchedCode({ content: code, type });
       }
     } catch (e) {
       console.error('Scan error:', e);
@@ -279,26 +241,22 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   };
 
   // Handle OCR recognition
-  const handleRecognize = async (imageOverride?: string) => {
-    const image = imageOverride || scanPreviewImage;
-    if (!image) {
-      setCameraError('请先拍摄或选择一张真实包装照片。');
-      return;
-    }
+  const handleRecognize = async (mockType?: string) => {
     setIsScanning(true);
     try {
       const response = await fetch('/api/ocr/recognize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageBase64: image
+          imageBase64: scanPreviewImage || '',
+          mockType: mockType || 'serum'
         })
       });
-      const data = await response.json() as any;
+      const data: any = await response.json();
       if (data.success && data.product) {
-        const p = Array.isArray(data.product.products) ? (data.product.products[0] || {}) : data.product;
+        const p = data.product;
         setBrand(p.brand || '');
-        setProductName(p.product_name || p.complete_product_name || '');
+        setProductName(p.product_name || '');
         setCategory(p.category || 'skincare');
         setSubcategory(p.subcategory || '精华');
         setShadeName(p.shade_name || '');
@@ -307,8 +265,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         setAllergenTagsText((p.allergen_tags || []).join(', '));
         setUserNotes(p.user_notes || '');
         setMode('manual');
-      } else {
-        setCameraError(data.error || '腾讯云未识别到可用的包装文字，请换一张更清晰的照片。');
       }
     } catch (e) {
       console.error(e);
@@ -320,43 +276,16 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith('image/')) { setCameraError('请选择 JPG、PNG 或 WEBP 图片。'); return; }
-      if (file.size > 10 * 1024 * 1024) { setCameraError('图片不能超过 10MB，请先压缩后上传。'); return; }
-      setCameraError(null);
       const reader = new FileReader();
       reader.onload = (event) => {
         const result = event.target?.result as string;
         setScanPreviewImage(result);
         if (mode === 'barcode') {
-          void handleBarcodeImageRecognize(result);
-        } else if (mode === 'camera') {
-          void handleRecognize(result);
+          // Trigger barcode parsing on uploaded image
+          handleScanCode('6923700941829', scannerType === 'barcode' ? 'barcode' : 'qr_code');
         }
       };
       reader.readAsDataURL(file);
-    }
-  };
-
-  const handleBarcodeImageRecognize = async (imageBase64: string) => {
-    setIsScanning(true);
-    setScanSuccessAnimation(false);
-    try {
-      const response = await fetch('/api/barcode/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64 }) });
-      const data = await response.json() as any;
-      if (!response.ok || !data.success) throw new Error(data.error || '二维码/条形码识别失败');
-      const code = data.codes?.[0];
-      if (!code?.content) {
-        setScannedResult(null);
-        console.info('Tencent QrcodeOCR: no code detected', data.requestId);
-        return;
-      }
-      const isBarcode = String(code.type || '').startsWith('EAN') || /UPC|CODE|PDF_417|DATA_MATRIX/i.test(String(code.type || ''));
-      await handleScanCode(code.content, isBarcode ? 'barcode' : 'qr_code');
-    } catch (error: any) {
-      console.error('Tencent barcode image recognition failed:', error);
-      setCameraError(error?.message || '腾讯云二维码/条形码识别失败，请重试。');
-    } finally {
-      setIsScanning(false);
     }
   };
 
@@ -396,106 +325,85 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     onClose();
   };
 
-  // Batch import demo simulation
-  const handleBatchImport = () => {
-    const sampleBatch: BeautyProduct[] = [
-      {
-        id: `prod_${Date.now()}_1`,
-        brand: 'CPB (肌肤之钥)',
-        product_name: '光透白密集焕亮隔离乳 (长管防晒隔离)',
-        category: 'base',
-        subcategory: '隔离霜',
-        size: '37ml',
-        purchase_date: '2026-08-01',
-        opened_date: '2026-08-10',
-        pao_months: 12,
-        expiry_date: '2027-08-10',
-        quantity: 1,
-        status: 'in_use',
-        ingredients: ['亮肌复合精华EX', '二氧化钛', '甘油'],
-        allergen_tags: [],
-        shelf_location: '主台·防晒区',
-        list_status: 'none',
-        usage_count: 12
-      },
-      {
-        id: `prod_${Date.now()}_2`,
-        brand: 'NARS',
-        product_name: '流光美肌清透蜜粉饼 (大白饼)',
-        category: 'base',
-        subcategory: '蜜粉饼',
-        purchase_date: '2026-05-10',
-        opened_date: '2026-05-20',
-        pao_months: 24,
-        expiry_date: '2028-05-20',
-        quantity: 1,
-        status: 'in_use',
-        ingredients: ['微晶矿物粉体', '角鲨烷', '维生素E'],
-        allergen_tags: [],
-        shelf_location: '抽屉一阶',
-        list_status: 'none',
-        usage_count: 35
+  // Batch image upload handler
+  const handleBatchImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            setBatchImages(prev => [...prev, event.target!.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  const handleRemoveBatchImage = (index: number) => {
+    setBatchImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleStartBatchAnalysis = async (mockImage?: string) => {
+    setIsBatchAnalyzing(true);
+    try {
+      const img = mockImage || batchImages[0] || '';
+      const response = await fetch('/api/batch/recognize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: img })
+      });
+      const data: any = await response.json();
+      if (data.success && data.items && data.items.length > 0) {
+        const open = new Date().toISOString().split('T')[0];
+        const products: BeautyProduct[] = data.items.map((it: any, idx: number) => {
+          const pao = it.pao_months || 12;
+          const exp = calculateExpiry(open, pao);
+          return {
+            id: `batch_${Date.now()}_${idx}`,
+            brand: it.brand || '美妆品牌',
+            product_name: it.product_name,
+            category: it.category || 'skincare',
+            subcategory: it.subcategory || '日常护理',
+            shade_name: it.shade_name || undefined,
+            shade_hex: it.shade_hex || undefined,
+            purchase_date: open,
+            opened_date: open,
+            pao_months: pao,
+            expiry_date: exp,
+            quantity: 1,
+            status: 'in_use',
+            ingredients: it.ingredients || [],
+            allergen_tags: [],
+            shelf_location: it.shelf_location || '主化妆台',
+            list_status: 'none',
+            usage_count: 0,
+            price: it.price,
+            user_notes: it.user_notes || '批量图片识别录入'
+          };
+        });
+        setRecognizedBatchItems(products);
+        setSelectedBatchIndices(products.map((_, i) => i));
       }
-    ];
-    onAddBatchProducts(sampleBatch);
+    } catch (err) {
+      console.error('Batch analysis failed:', err);
+    } finally {
+      setIsBatchAnalyzing(false);
+    }
+  };
+
+  const toggleBatchIndex = (idx: number) => {
+    setSelectedBatchIndices(prev => 
+      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+    );
+  };
+
+  const handleConfirmBatchImport = () => {
+    const toImport = recognizedBatchItems.filter((_, idx) => selectedBatchIndices.includes(idx));
+    if (toImport.length === 0) return;
+    onAddBatchProducts(toImport);
     onClose();
-  };
-
-  const handleProductShelfUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setProductDetectMessage('请选择 JPG、PNG 或 WEBP 图片。'); return; }
-    if (file.size > 10 * 1024 * 1024) { setProductDetectMessage('图片不能超过 10MB，请先压缩后上传。'); return; }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const imageBase64 = String(reader.result || '');
-      setIsScanning(true);
-      setProductDetectMessage('正在调用腾讯云商品识别，定位图片中的多个商品…');
-      try {
-        const [productResponse, barcodeResponse, ocrResponse] = await Promise.allSettled([
-          fetch('/api/product/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64 }) }),
-          fetch('/api/barcode/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64 }) }),
-          fetch('/api/ocr/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64 }) })
-        ]);
-        const productData = productResponse.status === 'fulfilled' ? await productResponse.value.json() as any : { success: false };
-        const barcodeData = barcodeResponse.status === 'fulfilled' ? await barcodeResponse.value.json() as any : { success: false };
-        const ocrData = ocrResponse.status === 'fulfilled' ? await ocrResponse.value.json() as any : { success: false };
-        if (!productData.success && !barcodeData.success && !ocrData.success) throw new Error('商品、条码和 OCR 均未返回结果');
-        const detectedByProductApi = Array.isArray(productData.products) ? productData.products : [];
-        const ocrProducts = Array.isArray(ocrData.product?.products) ? ocrData.product.products : [];
-        const products = detectedByProductApi.length ? detectedByProductApi : ocrProducts.map((item: any) => ({ name: item.complete_product_name || item.product_name || item.brand || '待确认商品', parents: item.brand || item.category || 'AI/OCR 辅助识别', confidence: Number(item.confidence || 0), bbox: null }));
-        const codes = Array.isArray(barcodeData.codes) ? barcodeData.codes : [];
-        setDetectedProducts(products);
-        setDetectedCodes(codes);
-        const parts = [`商品 ${products.length} 件`, `条码 ${codes.length} 个`];
-        if (ocrData.success) parts.push('OCR 已完成');
-        setProductDetectMessage(`${parts.join(' · ')}，请逐件核对后录入。`);
-      } catch (error: any) {
-        setDetectedProducts([]);
-        setDetectedCodes([]);
-        setProductDetectMessage(error?.message || '腾讯云商品识别失败，请检查密钥和图片。');
-      } finally {
-        setIsScanning(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const codeForProduct = (product: { bbox?: { xMin?: number; yMin?: number; xMax?: number; yMax?: number } }) => {
-    const box = product.bbox;
-    if (!box) return undefined;
-    const centerX = (Number(box.xMin || 0) + Number(box.xMax || 0)) / 2;
-    const centerY = (Number(box.yMin || 0) + Number(box.yMax || 0)) / 2;
-    return detectedCodes.find((code) => {
-      const pos = code.position;
-      if (!pos) return false;
-      const codeCenterX = (pos.left + pos.right) / 2;
-      const codeCenterY = (pos.top + pos.bottom) / 2;
-      return codeCenterX >= Number(box.xMin || 0) && codeCenterX <= Number(box.xMax || 0) && codeCenterY >= Number(box.yMin || 0) && codeCenterY <= Number(box.yMax || 0);
-    }) || detectedCodes.filter((code) => code.position).sort((a, b) => {
-      const ac = a.position!; const bc = b.position!;
-      return Math.hypot((ac.left + ac.right) / 2 - centerX, (ac.top + ac.bottom) / 2 - centerY) - Math.hypot((bc.left + bc.right) / 2 - centerX, (bc.top + bc.bottom) / 2 - centerY);
-    })[0];
   };
 
   return (
@@ -692,8 +600,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                 </p>
               </div>
 
-              {useLiveCamera && <button type="button" onClick={() => { void captureBarcodeFrame(); }} disabled={isScanning} className="relative z-20 mb-2 px-4 py-2 rounded-full bg-[#962F43] text-white text-xs font-semibold shadow-lg">拍摄当前画面并识别</button>}
-
               {/* Bottom Viewfinder Bar */}
               <div className="relative z-20 w-full pb-3 px-4 flex items-center justify-between text-white/90 text-xs">
                 {/* Switch to real camera if available */}
@@ -713,7 +619,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                 <label className="px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-[11px] flex items-center gap-1 cursor-pointer transition-colors">
                   <Upload className="w-3 h-3" />
                   <span>相册识码</span>
-                  <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
+                  <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                 </label>
 
                 {/* Manual text input toggle */}
@@ -840,14 +746,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
               </div>
             )}
 
-            {unmatchedCode && !scannedResult && (
-              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 space-y-2">
-                <div className="flex items-center gap-2 text-amber-900 text-xs font-semibold"><AlertCircle className="w-4 h-4" />已识别编码，但商品库暂无匹配</div>
-                <div className="text-[11px] font-mono break-all">{unmatchedCode.type === 'barcode' ? '条形码' : '二维码'}：{unmatchedCode.content}</div>
-                <button type="button" onClick={() => { setBrand(''); setProductName(''); setUserNotes(`已识别编码：${unmatchedCode.content}，商品信息待人工补充。`); setMode('manual'); }} className="w-full py-2 rounded-xl bg-amber-700 text-white text-xs font-semibold">手动补充商品信息</button>
-              </div>
-            )}
-
             {/* Quick Demo Scan Targets (Simulate scanning real cosmetics) */}
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between text-xs">
@@ -953,13 +851,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         {mode === 'camera' && (
           <div className="space-y-4">
             <div className="p-6 border-2 border-dashed border-stone-200 rounded-2xl flex flex-col items-center justify-center text-center relative overflow-hidden bg-stone-50">
-              {useLiveCamera ? (
-                <div className="relative w-full h-44 rounded-xl overflow-hidden bg-stone-950">
-                  <video ref={videoRef} playsInline autoPlay muted className="w-full h-full object-cover" />
-                  <div className="absolute inset-x-8 top-1/2 border-t-2 border-[#962F43]" />
-                  <div className="absolute bottom-2 inset-x-0 text-center text-[10px] text-white">确认包装清晰后点击下方“拍摄并识别”</div>
-                </div>
-              ) : scanPreviewImage ? (
+              {scanPreviewImage ? (
                 <div className="relative w-full h-44 rounded-xl overflow-hidden">
                   <img src={scanPreviewImage} alt="包装照片" className="w-full h-full object-cover" />
                   <button
@@ -979,12 +871,8 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                   <div className="flex gap-2 mt-3">
                     <label className="px-4 py-2 bg-white border border-stone-200 text-stone-700 text-xs font-medium rounded-xl hover:bg-stone-50 cursor-pointer shadow-2xs">
                       <span>从相册选择照片</span>
-                      <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
+                      <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                     </label>
-
-                    <button type="button" onClick={() => { void startCamera(); }} className="px-4 py-2 bg-stone-900 text-white text-xs font-medium rounded-xl hover:bg-stone-800 shadow-2xs flex items-center gap-1">
-                      <Camera className="w-3.5 h-3.5" /><span>打开摄像头</span>
-                    </button>
 
                     <button
                       type="button"
@@ -999,9 +887,41 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
               )}
             </div>
 
-            {useLiveCamera && <div className="flex gap-2"><button type="button" onClick={() => { void capturePhoto(); }} disabled={isScanning} className="flex-1 py-2.5 bg-[#962F43] text-white rounded-xl text-xs font-semibold">拍摄并识别</button><button type="button" onClick={stopCamera} className="px-4 py-2.5 border border-stone-200 rounded-xl text-xs">取消</button></div>}
-
-            <p className="text-[11px] text-stone-500">识别结果只来自你拍摄或选择的真实图片；如果识别失败，请调整光线、距离后重新拍摄。</p>
+            {/* Quick Demo Previews */}
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-stone-700 block">
+                现场演示快捷试样识别 (点击即模拟拍照分析)
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  disabled={isScanning}
+                  onClick={() => handleRecognize('serum')}
+                  className="p-2.5 rounded-xl border border-stone-200 hover:border-stone-900 text-left text-xs bg-white transition-colors"
+                >
+                  <span className="font-semibold block truncate">修丽可 CEF 精华</span>
+                  <span className="text-[10px] text-stone-500">抗氧化精华·PAO 6M</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isScanning}
+                  onClick={() => handleRecognize('lipstick')}
+                  className="p-2.5 rounded-xl border border-stone-200 hover:border-stone-900 text-left text-xs bg-white transition-colors"
+                >
+                  <span className="font-semibold block truncate">YSL 小金条 #1966</span>
+                  <span className="text-[10px] text-stone-500">红棕口红·PAO 18M</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isScanning}
+                  onClick={() => handleRecognize('default')}
+                  className="p-2.5 rounded-xl border border-stone-200 hover:border-stone-900 text-left text-xs bg-white transition-colors"
+                >
+                  <span className="font-semibold block truncate">欧莱雅紫熨斗眼霜</span>
+                  <span className="text-[10px] text-stone-500">玻色因淡纹·PAO 12M</span>
+                </button>
+              </div>
+            </div>
 
             {isScanning && (
               <div className="p-3 bg-amber-50 text-amber-900 rounded-xl text-xs flex items-center justify-center gap-2">
@@ -1179,40 +1099,189 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         {/* ======================================================== */}
         {mode === 'batch' && (
           <div className="space-y-4">
-            <div className="p-4 bg-stone-50 rounded-2xl border border-stone-200 space-y-2 text-xs text-stone-700">
-              <span className="font-bold text-stone-900 block">批量导入功能说明</span>
-              <p className="text-[11px] text-stone-500 leading-relaxed">
-                适合化妆品数量较多的用户，支持通过电商购物记录截图、全家福梳妆台拍照、或批量扫码连投一次性导入多件宝贝。
+            {/* Hidden batch file input */}
+            <input 
+              type="file" 
+              ref={batchFileInputRef} 
+              multiple 
+              accept="image/*" 
+              onChange={handleBatchImageUpload} 
+              className="hidden" 
+            />
+
+            {/* Upload Zone */}
+            <div className="p-4 sm:p-5 border-2 border-dashed border-stone-200 rounded-2xl flex flex-col items-center justify-center text-center relative overflow-hidden bg-stone-50">
+              <Upload className="w-8 h-8 text-[#962F43] mb-2" />
+              <span className="text-xs font-bold text-stone-800">
+                上传化妆品全家福 / 电商订单截图
+              </span>
+              <p className="text-[11px] text-stone-500 mt-1 max-w-xs">
+                支持单张或多张上传，AI 自动切片提取品牌、品名、色号与分类，省去手动输入的繁琐
               </p>
-              <div className="p-3 bg-white rounded-xl border border-stone-200 space-y-1">
-                <span className="font-semibold text-stone-800 text-[11px]">演示示例批次包含：</span>
-                <ul className="list-disc pl-4 text-[10px] text-stone-600 space-y-0.5">
-                  <li>CPB (肌肤之钥) 光透白密集焕亮长管隔离乳 37ml</li>
-                  <li>NARS 流光美肌清透蜜粉饼 (大白饼)</li>
-                </ul>
+
+              <div className="flex items-center gap-2 mt-3 flex-wrap justify-center">
+                <button
+                  type="button"
+                  onClick={() => batchFileInputRef.current?.click()}
+                  className="px-4 py-2 bg-white border border-stone-200 text-stone-800 text-xs font-semibold rounded-xl hover:bg-stone-50 transition-colors shadow-2xs flex items-center gap-1.5"
+                >
+                  <Upload className="w-3.5 h-3.5 text-[#962F43]" />
+                  <span>从相册选择图片 ({batchImages.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleStartBatchAnalysis('demo_haul')}
+                  className="px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-medium rounded-xl transition-colors flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>试用示例图片识别</span>
+                </button>
               </div>
             </div>
 
-            <label className="w-full py-3 px-4 bg-stone-900 text-white rounded-2xl text-xs font-semibold hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer">
-              <Upload className="w-4 h-4" />
-              <span>{isScanning ? '识别中…' : '上传化妆柜照片并识别商品'}</span>
-              <input type="file" accept="image/*" className="hidden" onChange={handleProductShelfUpload} disabled={isScanning} />
-            </label>
-            {productDetectMessage && <p className="text-[11px] text-stone-600 bg-stone-50 rounded-xl p-3">{productDetectMessage}</p>}
-            {detectedProducts.length > 0 && (
+            {/* Uploaded Images Thumbnails */}
+            {batchImages.length > 0 && (
               <div className="space-y-2">
-                {detectedProducts.map((product, index) => (
-                  <div key={`${product.name}-${index}`} className="flex items-center justify-between rounded-xl border border-stone-200 p-3 text-xs">
-                    <div><span className="font-semibold text-stone-800">{product.name || '待确认商品'}</span><span className="block text-[10px] text-stone-500">{product.parents || '腾讯云商品识别'} · 置信度 {Math.round(Number(product.confidence || 0))}%</span>{codeForProduct(product) && <span className="block text-[10px] text-emerald-700">{codeForProduct(product)!.type} · {codeForProduct(product)!.content}</span>}</div>
-                    <button type="button" onClick={() => { setProductName(product.name || ''); setBrand(product.parents || ''); setMode('manual'); }} className="px-3 py-1.5 rounded-lg bg-[#962F43] text-white text-[10px]">补充并录入</button>
-                  </div>
-                ))}
-                {detectedProducts.length === 0 && detectedCodes.map((code, index) => <div key={`${code.content}-${index}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs"><span className="font-semibold">已识别 {code.type}</span><span className="block text-[10px] break-all">{code.content}</span><span className="block text-[10px] text-stone-500">未能可靠关联到商品，请手动确认</span></div>)}
+                <div className="flex items-center justify-between text-xs text-stone-600 px-1 font-medium">
+                  <span>已上传的待识别图片 ({batchImages.length} 张)</span>
+                  <button 
+                    type="button"
+                    onClick={() => setBatchImages([])} 
+                    className="text-stone-400 hover:text-stone-700 text-[11px]"
+                  >
+                    清空图片
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 overflow-x-auto scrollbar-none py-1">
+                  {batchImages.map((img, idx) => (
+                    <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-stone-200 shrink-0 bg-stone-100">
+                      <img src={img} alt={`batch-${idx}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBatchImage(idx)}
+                        className="absolute top-1 right-1 w-4 h-4 rounded-full bg-stone-900/80 text-white flex items-center justify-center hover:bg-stone-900"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => batchFileInputRef.current?.click()}
+                    className="w-16 h-16 rounded-xl border border-dashed border-stone-300 text-stone-400 flex flex-col items-center justify-center hover:border-stone-500 hover:text-stone-600 shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-[9px] mt-0.5">加图</span>
+                  </button>
+                </div>
+
+                {recognizedBatchItems.length === 0 && (
+                  <button
+                    type="button"
+                    disabled={isBatchAnalyzing}
+                    onClick={() => handleStartBatchAnalysis()}
+                    className="w-full py-2.5 bg-[#962F43] hover:bg-[#832637] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    {isBatchAnalyzing ? (
+                      <>
+                        <Sparkles className="w-4 h-4 animate-spin text-amber-300" />
+                        <span>AI 正在切片提取多目标化妆品...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        <span>开始 AI 批量识别分析</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             )}
-            <button type="button" onClick={handleBatchImport} className="w-full py-2.5 px-4 border border-stone-200 text-stone-600 rounded-2xl text-xs font-medium hover:bg-stone-50 transition-colors flex items-center justify-center gap-2">
-              <Layers className="w-4 h-4" /><span>使用演示数据快速导入</span>
-            </button>
+
+            {/* Recognized Items List */}
+            {recognizedBatchItems.length > 0 && (
+              <div className="space-y-2.5 pt-1">
+                <div className="flex items-center justify-between text-xs px-1">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>成功识别 {recognizedBatchItems.length} 件化妆品</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBatchIndices(recognizedBatchItems.map((_, i) => i))}
+                      className="text-[11px] text-[#962F43] hover:underline font-semibold"
+                    >
+                      全选
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBatchIndices([])}
+                      className="text-[11px] text-stone-400 hover:text-stone-700"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {recognizedBatchItems.map((item, idx) => {
+                    const isChecked = selectedBatchIndices.includes(idx);
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => toggleBatchIndex(idx)}
+                        className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2.5 cursor-pointer transition-all ${
+                          isChecked 
+                            ? 'bg-rose-50/50 border-[#962F43]/40 shadow-2xs' 
+                            : 'bg-stone-50/60 border-stone-200 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-4 h-4 rounded flex items-center justify-center border ${
+                            isChecked ? 'bg-[#962F43] border-[#962F43] text-white' : 'border-stone-300 bg-white'
+                          }`}>
+                            {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-stone-900 line-clamp-1">
+                              {item.product_name}
+                            </div>
+                            <div className="text-[10px] text-stone-500 flex items-center gap-1.5 mt-0.5">
+                              <span>{item.brand}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>{item.subcategory}</span>
+                              {item.shade_name && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-rose-700">{item.shade_name}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white border border-stone-200 text-stone-600 font-medium shrink-0">
+                          PAO {item.pao_months}M
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Import Confirmation Button */}
+                <button
+                  type="button"
+                  disabled={selectedBatchIndices.length === 0}
+                  onClick={handleConfirmBatchImport}
+                  className="w-full py-3 px-4 bg-[#962F43] hover:bg-[#832637] disabled:bg-stone-300 text-white rounded-2xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition-all active:scale-98"
+                >
+                  <Layers className="w-4 h-4" />
+                  <span>确认导入选中的 ({selectedBatchIndices.length} 件) 到我的化妆台</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

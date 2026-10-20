@@ -29,6 +29,10 @@ import { MallScreen } from './components/screens/MallScreen';
 import { CircularScreen } from './components/screens/CircularScreen';
 import { ProfileScreen } from './components/screens/ProfileScreen';
 import { RoutinePushReminderModal } from './components/routine/RoutinePushReminderModal';
+import { enrichProduct } from './services/productEnrichmentService';
+import { AuthModal } from './components/auth/AuthModal';
+import { UserProfile } from './types/auth';
+import { GUEST_USER } from './data/mockUsers';
 
 import { 
   BeautyProduct, 
@@ -43,6 +47,7 @@ import {
   ProductStatus,
   ListRating,
   RoutineReminderSettings
+  , MakeupStepDetail
 } from './types/beauty';
 
 import { 
@@ -61,6 +66,19 @@ export default function App() {
   // Accessibility & UI Modes (Default to WeChat Mini-Program for user presentation)
   const [isMobilePreview, setIsMobilePreview] = useState(true);
   const [isHighContrast, setIsHighContrast] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('vanity_auth_user');
+      if (saved) return JSON.parse(saved) as UserProfile;
+    } catch (e) {}
+    return GUEST_USER;
+  });
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem('vanity_auth_user', JSON.stringify(currentUser)); } catch (e) {}
+  }, [currentUser]);
 
   // Female Physiological Cycle State
   const [cyclePhase, setCyclePhase] = useState<CyclePhase>(() => {
@@ -91,7 +109,10 @@ export default function App() {
   const [products, setProducts] = useState<BeautyProduct[]>(() => {
     try {
       const saved = localStorage.getItem('vanity_products');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved) as BeautyProduct[];
+        return parsed;
+      }
     } catch (e) {}
     return INITIAL_PRODUCTS;
   });
@@ -187,6 +208,14 @@ export default function App() {
   }, [products]);
 
   useEffect(() => {
+    let active = true;
+    void fetch('/api/auth/session').then(response => response.json() as Promise<{ authenticated?: boolean }>).then(data => {
+      if (active) setAuthenticated(Boolean(data?.authenticated));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem('vanity_blacklist', JSON.stringify(blacklist));
   }, [blacklist]);
 
@@ -241,12 +270,104 @@ export default function App() {
   };
 
   // 1. Add Product Handlers
+  const syncProduct = async (product: BeautyProduct) => {
+    if (!authenticated) {
+      setProducts(prev => prev.map(item => item.id === product.id ? { ...item, syncStatus: 'local' } : item));
+      return;
+    }
+    try {
+      const response = await fetch('/api/products/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ products: [product] }) });
+      if (!response.ok) throw new Error('sync failed');
+      setProducts(prev => prev.map(item => item.id === product.id ? { ...item, syncStatus: 'synced' } : item));
+    } catch {
+      setProducts(prev => prev.map(item => item.id === product.id ? { ...item, syncStatus: 'failed' } : item));
+    }
+  };
+
+  const enrichProductIngredients = async (product: BeautyProduct) => {
+    const querying = { ...product, ingredient_enrichment_status: 'querying' as const, ingredient_enrichment_error: undefined };
+    setProducts(prev => prev.map(item => item.id === product.id ? querying : item));
+    try {
+      const result = await enrichProduct(querying);
+      const returnedIngredients = Array.isArray(result.product?.ingredients) && result.product.ingredients.length ? result.product.ingredients : querying.ingredients;
+      const returnedRecords = Array.isArray(result.product?.ingredient_records) && result.product.ingredient_records.length ? result.product.ingredient_records : querying.ingredient_records;
+      const enriched = { ...querying, ...(result.product || {}), id: product.id, ingredients: returnedIngredients, ingredient_records: returnedRecords, ingredient_enrichment_status: result.status, ingredient_enrichment_source: result.source, ingredient_enrichment_source_url: result.sourceUrl, ingredient_enrichment_queried_at: new Date().toISOString(), ingredient_enrichment_error: result.error, syncStatus: 'pending' as const };
+      setProducts(prev => prev.map(item => item.id === product.id ? enriched : item));
+      return enriched;
+    } catch (error: any) {
+      const failed = { ...querying, ingredient_enrichment_status: 'failed' as const, ingredient_enrichment_queried_at: new Date().toISOString(), ingredient_enrichment_error: error?.message || '成分查询失败' };
+      setProducts(prev => prev.map(item => item.id === product.id ? failed : item));
+      return failed;
+    }
+  };
+
   const handleAddProduct = (newProduct: BeautyProduct) => {
-    setProducts(prev => [newProduct, ...prev]);
+    const pending = { ...newProduct, syncStatus: 'pending' as const, ingredient_enrichment_status: newProduct.ingredients.length ? 'needs_verification' as const : 'not_queried' as const };
+    setProducts(prev => [pending, ...prev]);
+    void enrichProductIngredients(pending).then(enriched => syncProduct(enriched));
   };
 
   const handleAddBatchProducts = (batch: BeautyProduct[]) => {
-    setProducts(prev => [...batch, ...prev]);
+    const pending = batch.map(product => ({ ...product, syncStatus: 'pending' as const, ingredient_enrichment_status: product.ingredients.length ? 'needs_verification' as const : 'not_queried' as const }));
+    setProducts(prev => [...pending, ...prev]);
+    pending.forEach(product => void enrichProductIngredients(product).then(enriched => syncProduct(enriched)));
+  };
+
+  const handleRetryProductEnrichment = (product: BeautyProduct) => {
+    void enrichProductIngredients({ ...product, ingredient_enrichment_status: 'not_queried', ingredient_enrichment_error: undefined }).then(enriched => syncProduct(enriched));
+  };
+
+  const handleAddToTodayPlan = (product: BeautyProduct): boolean => {
+    const existingItems = routinePlan.today_makeup_products || [];
+    if (existingItems.some(item => item.product_id === product.id)) return false;
+    const subcategory = `${product.subcategory} ${product.product_name}`;
+    const routine_type: 'morning' | 'evening' | 'both' = /防晒|洁面|爽肤|化妆水|喷雾/.test(subcategory)
+      ? 'morning'
+      : /A醇|视黄醇|酸|夜间|修护|面霜|晚霜/.test(subcategory) ? 'evening' : 'both';
+    const step = /洁面/.test(subcategory) ? '洁面' : /爽肤|化妆水|喷雾/.test(subcategory) ? '爽肤水' : /防晒/.test(subcategory) ? '防晒' : /面霜|乳霜|乳液|晚霜/.test(subcategory) ? '面霜' : '精华';
+    const careStep = {
+      step_number: 0,
+      category: step,
+      title: `${step} · ${product.brand}`,
+      product_id: product.id,
+      product_name: product.product_name,
+      brand: product.brand,
+      dosage: '按产品说明使用',
+      wait_time: '吸收后进行下一步',
+      instruction: '根据产品标签和个人耐受使用，出现不适请停止。'
+    };
+    setRoutinePlan(prev => {
+      const existing = prev.today_makeup_products || [];
+      const next = {
+        ...prev,
+        selected_product_ids: Array.from(new Set([...(prev.selected_product_ids || []), product.id])),
+        morning_steps: routine_type === 'evening' ? prev.morning_steps : [...(prev.morning_steps || []), careStep],
+        evening_steps: routine_type === 'morning' ? prev.evening_steps : [...(prev.evening_steps || []), careStep],
+        today_makeup_products: [...existing, { product_id: product.id, step, routine_type, source: 'vanity' as const, completed: false }],
+        sync_status: 'pending' as const
+      };
+      void fetch('/api/routine/today-products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: next, product }) })
+        .then(response => { if (!response.ok) throw new Error('sync failed'); setRoutinePlan(current => ({ ...current, sync_status: 'synced' })); })
+        .catch(() => setRoutinePlan(current => ({ ...current, sync_status: 'failed' })));
+      return next;
+    });
+    return true;
+  };
+
+  const handleUpdateRoutinePlan = (plan: RoutinePlan) => {
+    const pending = { ...plan, sync_status: 'pending' as const };
+    setRoutinePlan(pending);
+    void fetch('/api/routine/today-products', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: pending })
+    }).then(async response => {
+      const data = await response.json().catch(() => ({})) as any;
+      if (!response.ok || !data.success) throw new Error(data.error || '护肤流程保存失败');
+      setRoutinePlan(current => ({ ...current, sync_status: 'synced' }));
+    }).catch(error => {
+      console.error('Routine plan sync failed:', error);
+      setRoutinePlan(current => ({ ...current, sync_status: 'failed' }));
+    });
   };
 
   // 2. Update Product Handler
@@ -406,7 +527,7 @@ export default function App() {
   };
 
   // 10. Generate Makeup Look
-  const handleGenerateAILook = async (params: { lookType: 'daily' | 'imitation' | 'cos'; referenceText?: string }) => {
+  const handleGenerateAILook = async (params: { lookType: 'daily' | 'imitation' | 'cos'; referenceText?: string; referenceImage?: string; characterName?: string; userPhoto?: string }) => {
     setIsGeneratingLook(true);
     try {
       const response = await fetch('/api/makeup/generate', {
@@ -415,15 +536,102 @@ export default function App() {
         body: JSON.stringify({
           lookType: params.lookType,
           referenceDescription: params.referenceText,
+          referenceImage: params.referenceImage,
+          characterName: params.characterName,
           vanityProducts: products.filter(p => p.category !== 'skincare' && p.list_status !== 'black')
         })
       });
       const data = await response.json() as any;
       if (data.success && data.look) {
+        const rawStepDetails: MakeupStepDetail[] = Array.isArray(data.look.step_details)
+          ? data.look.step_details.map((step: any, index: number) => ({
+              id: String(step.id || `step_${index + 1}`),
+              title: String(step.title || step.name || step.step || `第${index + 1}步`),
+              targetArea: step.targetArea || step.target_area || step.region,
+              layerType: step.layerType || step.layer_type,
+              productId: step.productId || step.product_id,
+              productName: step.productName || step.product_name,
+              shade: step.shade || step.shade_name,
+              tool: step.tool,
+              dosage: step.dosage || step.amount,
+              method: Array.isArray(step.method) ? step.method.map(String) : step.detail ? [String(step.detail)] : step.instruction ? [String(step.instruction)] : [],
+              pitfalls: Array.isArray(step.pitfalls) ? step.pitfalls.map(String) : [],
+              checklist: Array.isArray(step.checklist) ? step.checklist.map(String) : [],
+              estimatedMin: Number(step.estimatedMin || step.estimated_min || 2)
+            }))
+          : [];
+        const aiSteps = Array.isArray(data.look.steps) ? data.look.steps.map((step: any) => {
+          if (typeof step === 'string') return step.trim();
+          if (step && typeof step === 'object') return [step.name || step.title || step.step || '', step.detail || step.instruction || step.description || ''].filter(Boolean).join('：');
+          return '';
+        }).filter(Boolean) : [];
+        const generatedSteps = aiSteps.length >= 6 ? aiSteps : [
+          '妆前保湿与底妆：薄涂并按压均匀，保留原生皮肤纹理',
+          '眉毛：根据目标妆容调整眉形和眉峰，填补空隙',
+          '眼影打底：用浅色铺开眼窝，边缘向外晕染',
+          '眼影加深：按目标风格加深眼尾或眼褶，避免硬边',
+          '眼线与睫毛：沿真实眼型描绘，眼尾少量延伸并夹翘睫毛',
+          '腮红：少量点在苹果肌或颧骨，向太阳穴方向晕开',
+          '修容与高光：只强调鼻梁、面中和下颌需要的结构',
+          '唇妆：先勾勒唇形，再少量叠加颜色并检查边缘'
+        ];
+        const stepDetails: MakeupStepDetail[] = generatedSteps.map((step: string, index: number) => {
+          const source = rawStepDetails[index];
+          const inferredType = /底妆|妆前|粉底/.test(step) ? 'base' : /眉/.test(step) ? 'brows' : /眼影/.test(step) ? 'eyeshadow' : /眼线/.test(step) ? 'eyeliner' : /睫毛/.test(step) ? 'lashes' : /腮红/.test(step) ? 'blush' : /修容/.test(step) ? 'contour' : /高光/.test(step) ? 'highlight' : /唇|口红/.test(step) ? 'lips' : 'fullLook';
+          const layerType = source?.layerType || inferredType;
+          const targetArea = source?.targetArea || (layerType === 'base' ? '全脸' : layerType === 'brows' ? '眉毛' : layerType === 'eyeshadow' ? '眼周' : layerType === 'eyeliner' ? '眼线' : layerType === 'lashes' ? '睫毛' : layerType === 'blush' ? '颧骨/苹果肌' : layerType === 'contour' ? '鼻梁/下颌' : layerType === 'highlight' ? '鼻梁/面中' : layerType === 'lips' ? '上下唇' : '面部整体');
+          return {
+            ...source,
+            id: source?.id || `step_${index + 1}`,
+            title: source?.title || step.split('：')[0] || step,
+            targetArea,
+            layerType,
+            method: source?.method?.length ? source.method : [step],
+            pitfalls: source?.pitfalls || [],
+            checklist: source?.checklist?.length ? source.checklist : ['确认边缘自然并与左右脸协调'],
+            estimatedMin: source?.estimatedMin || 2
+          };
+        });
+        const characterGuidance = params.lookType === 'cos' && params.characterName
+          ? `这是${params.characterName}的角色妆造。请严格遵循角色的视觉识别：冷白或角色设定肤色、角色标志性眼妆、眉形、唇色、冷暖色盘和舞台氛围；只改变妆容，不改变用户的脸型、五官比例、发型和背景。若角色是芙宁娜（Furina），使用枫丹舞台感、蓝白冷调、精致上挑眼线、蓝灰眼影、明亮高光和偏玫红唇色，避免普通日常妆。`
+          : '';
+        const layerDefinitions = stepDetails.map((step, index) => {
+          const type = step.layerType || 'fullLook';
+          const region = step.targetArea || '面部整体';
+          return { id: `layer_${Date.now()}_${index}`, type, region, style: step.title, productId: step.productId, shade: step.shade, opacity: 80, feather: 12, enabled: true, stepIndex: index };
+        });
+        let renderedImage: string | undefined;
+        let renderedLayers: any[] = [];
+        let renderProvider: MakeupLook['render_provider'] = 'unavailable';
+        let renderStatus: MakeupLook['render_status'] = 'unavailable';
+        if (params.userPhoto) {
+          try {
+            const renderResponse = await fetch('/api/makeup/render', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                imageBase64: params.userPhoto,
+                steps: stepDetails.map(step => ({ title: step.title, targetArea: step.targetArea, layerType: step.layerType })),
+                prompt: `妆容类型：${params.lookType}。${characterGuidance}妆容方案：${data.look.description || data.look.title || ''}。步骤：${generatedSteps.join('；')}。${params.referenceImage ? '参考图中的角色妆面是重要视觉依据，请匹配其色盘和眼唇结构。' : ''}请保持人物身份、脸型、五官比例、发型、姿态和背景不变，只生成贴合真实面部结构的妆容效果图，并保留皮肤纹理。`
+              })
+            });
+            const rendered = await renderResponse.json() as any;
+            if (rendered.success && rendered.imageUrl) { renderedImage = rendered.imageUrl; renderedLayers = Array.isArray(rendered.renderedLayers) ? rendered.renderedLayers : []; renderProvider = rendered.render_provider || 'doubao-seedream'; renderStatus = rendered.render_status === 'fallback' ? 'fallback' : 'ready'; }
+            else { renderStatus = rendered.render_status === 'unavailable' ? 'unavailable' : 'failed'; }
+          } catch (error) { console.error('Makeup rendering failed:', error); renderStatus = 'failed'; }
+        }
         const newLook: MakeupLook = {
           ...data.look,
           id: `look_${Date.now()}`,
           type: params.lookType,
+          character_name: params.characterName || data.look.character_name,
+          reference_image: params.referenceImage,
+          generated_image: renderedImage,
+          render_provider: renderProvider,
+          render_status: renderStatus,
+          rendered_layers: renderedLayers,
+          layers: layerDefinitions as any,
+          step_details: stepDetails,
+          steps: generatedSteps,
           created_at: new Date().toISOString().split('T')[0]
         };
         setLooks(prev => [newLook, ...prev]);
@@ -459,6 +667,20 @@ export default function App() {
     }
   };
 
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (user.cyclePhase) setCyclePhase(user.cyclePhase);
+    if (user.idolCompanion) {
+      setIdolProfile(prev => ({ ...prev, idolName: user.idolCompanion }));
+    }
+    setShowAuthModal(false);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(GUEST_USER);
+    setShowAuthModal(false);
+  };
+
   return (
     <div className="min-h-screen bg-[#FAF6F3] text-stone-900 flex flex-col font-sans antialiased">
       {/* Top Navigation Bar matching the warm luxury aesthetic */}
@@ -474,9 +696,12 @@ export default function App() {
           setShowAddModal(true);
         }}
         onSpeakGreeting={speakGentleGreeting}
+        currentUser={currentUser}
+        onOpenLogin={() => setShowAuthModal(true)}
       />
 
       {/* Main Content Area */}
+      {!authenticated && <div className="mx-auto mt-2 max-w-2xl px-3"><div className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-center text-[11px] text-amber-900">当前为未登录临时模式：数据仅保存在本机，登录后才会同步到个人云端。</div></div>}
       <main className="flex-1 w-full mx-auto px-0 sm:px-4 py-0 sm:py-6 flex justify-center items-start">
         {isMobilePreview ? (
           /* WeChat Mini-Program Experience */
@@ -485,6 +710,8 @@ export default function App() {
             <WeChatFrame
               currentTab={activeTab === 'api' ? 'home' : activeTab}
               onTabChange={setActiveTab}
+              currentUser={currentUser}
+              onOpenLogin={() => setShowAuthModal(true)}
             >
               {activeTab === 'home' && (
                 <HomeScreen
@@ -499,6 +726,8 @@ export default function App() {
                   }}
                   reminderSettings={reminderSettings}
                   products={products}
+                  currentUser={currentUser}
+                  onOpenLogin={() => setShowAuthModal(true)}
                 />
               )}
 
@@ -514,6 +743,8 @@ export default function App() {
                     setCompatibilityTargetProducts(selected);
                     setShowCompatibilityModal(true);
                   }}
+                  onAddToTodayPlan={handleAddToTodayPlan}
+                  onRetryProductEnrichment={handleRetryProductEnrichment}
                 />
               )}
 
@@ -526,6 +757,7 @@ export default function App() {
                   isGenerating={isGeneratingPlan}
                   reminderSettings={reminderSettings}
                   onUpdateReminderSettings={setReminderSettings}
+                  onUpdatePlan={handleUpdateRoutinePlan}
                   onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
                 />
               )}
@@ -537,6 +769,7 @@ export default function App() {
                   onGenerateLook={handleGenerateAILook}
                   onRateLook={handleRateLookToList}
                   isGenerating={isGeneratingLook}
+                  authenticated={authenticated}
                 />
               )}
 
@@ -570,6 +803,9 @@ export default function App() {
                   onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
                   onExportData={handleExportData}
                   onShowPrivacyModal={() => setShowPrivacyPolicyModal(true)}
+                  currentUser={currentUser}
+                  onOpenLogin={() => setShowAuthModal(true)}
+                  onLogout={handleLogout}
                 />
               )}
               {activeTab === 'api' && <ApiIntegrationPanel />}
@@ -591,6 +827,8 @@ export default function App() {
                 }}
                 reminderSettings={reminderSettings}
                 products={products}
+                currentUser={currentUser}
+                onOpenLogin={() => setShowAuthModal(true)}
               />
             )}
 
@@ -606,6 +844,8 @@ export default function App() {
                   setCompatibilityTargetProducts(selected);
                   setShowCompatibilityModal(true);
                 }}
+                onAddToTodayPlan={handleAddToTodayPlan}
+                onRetryProductEnrichment={handleRetryProductEnrichment}
               />
             )}
 
@@ -618,6 +858,7 @@ export default function App() {
                 isGenerating={isGeneratingPlan}
                 reminderSettings={reminderSettings}
                 onUpdateReminderSettings={setReminderSettings}
+                  onUpdatePlan={handleUpdateRoutinePlan}
                 onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
               />
             )}
@@ -629,6 +870,7 @@ export default function App() {
                 onGenerateLook={handleGenerateAILook}
                 onRateLook={handleRateLookToList}
                 isGenerating={isGeneratingLook}
+                authenticated={authenticated}
               />
             )}
 
@@ -662,6 +904,9 @@ export default function App() {
                 onAddFeedbackLog={(log) => setFeedbackLogs(prev => [log, ...prev])}
                 onExportData={handleExportData}
                 onShowPrivacyModal={() => setShowPrivacyPolicyModal(true)}
+                currentUser={currentUser}
+                onOpenLogin={() => setShowAuthModal(true)}
+                onLogout={handleLogout}
               />
             )}
             {activeTab === 'api' && <ApiIntegrationPanel />}
@@ -790,6 +1035,13 @@ export default function App() {
           setActiveTab('routine');
         }}
         products={products}
+      />
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onLoginSuccess={handleLoginSuccess}
+        currentUser={currentUser}
       />
     </div>
   );
