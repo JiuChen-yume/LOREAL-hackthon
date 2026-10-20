@@ -1,0 +1,23 @@
+name: Feature request
+description: 提议一个能改善 Beauty Twin AI 的功能
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 谁在什么场景下遇到了什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 约束或依赖
+      description: 是否需要新的 AI 模型、云服务、素材或设备能力？
