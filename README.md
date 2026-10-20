@@ -13,9 +13,6 @@
 
 <br />
 
-<a href="https://github.com/JiuChen-yume/LOREAL-hackthon/stargazers"><img src="https://img.shields.io/github/stars/JiuChen-yume/LOREAL-hackthon?style=flat-square&color=f5c451" alt="Stars" /></a>
-<a href="https://github.com/JiuChen-yume/LOREAL-hackthon/network/members"><img src="https://img.shields.io/github/forks/JiuChen-yume/LOREAL-hackthon?style=flat-square&color=8b5cf6" alt="Forks" /></a>
-<a href="https://github.com/JiuChen-yume/LOREAL-hackthon/issues"><img src="https://img.shields.io/github/issues/JiuChen-yume/LOREAL-hackthon?style=flat-square&color=ef6c85" alt="Issues" /></a>
 
 </div>
 
